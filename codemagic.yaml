@@ -25,10 +25,6 @@ workflows:
         script: |
           flutter packages pub get
           flutter gen-l10n
-      - name: Install CocoaPods
-        script: |
-          cd ios
-          pod install
       - name: Build iOS Application (unsigned)
         script: |
           flutter build ios --release --no-codesign
@@ -65,17 +61,14 @@ workflows:
       events:
         - tag
     scripts:
-      - name: Set up code signing settings on Xcode project
-        script: |
-          xcode-project use-profiles
-      - name: Flutter dependencies & code generation
+      - name: Flutter dependencies, code generation & iOS config
         script: |
           flutter packages pub get
           flutter gen-l10n
-      - name: Install CocoaPods
+          flutter build ios --config-only --release --no-codesign
+      - name: Set up code signing settings on Xcode project
         script: |
-          cd ios
-          pod install
+          xcode-project use-profiles
       - name: Flutter build IPA
         script: |
           flutter build ipa --release \
