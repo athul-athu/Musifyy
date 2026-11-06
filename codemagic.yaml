@@ -48,12 +48,15 @@ workflows:
     name: iOS App Store / TestFlight Signed IPA
     max_build_duration: 60
     instance_type: mac_mini_m2
+    # If using a Codemagic UI integration for App Store Connect, uncomment below:
+    # integrations:
+    #   app_store_connect: my_app_store_connect_integration_name
     environment:
       flutter: 3.47.7
       xcode: latest
       cocoapods: default
       groups:
-        - app_store_credentials # Define APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_PRIVATE_KEY
+        - app_store_credentials # Set APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_PRIVATE_KEY
       vars:
         XCODE_WORKSPACE: "ios/Runner.xcworkspace"
         XCODE_SCHEME: "Runner"
@@ -82,12 +85,19 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
     publishing:
       email:
-        recipients:
-          - user@example.com
         notify:
           success: true
           failure: true
-      app_store_connect:
-        auth: integration
-        submit_to_testflight: true
-
+      # To publish to TestFlight or App Store automatically, choose either:
+      #
+      # Option 1 (Environment Variables from group 'app_store_credentials'):
+      # app_store_connect:
+      #   api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+      #   key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+      #   issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+      #   submit_to_testflight: true
+      #
+      # Option 2 (Codemagic UI Integration - also uncomment 'integrations' above):
+      # app_store_connect:
+      #   auth: integration
+      #   submit_to_testflight: true
