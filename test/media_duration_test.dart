@@ -53,5 +53,16 @@ void main() {
         known,
       );
     });
+
+    test('rejects doubled or bloated duration reports from native player', () {
+      const known = Duration(minutes: 3);
+      const doubled = Duration(minutes: 6);
+      const bloated = Duration(minutes: 4, seconds: 40); // > 1.5x
+      const reasonable = Duration(minutes: 3, seconds: 4); // close to known
+
+      expect(preferStableMediaDuration(known, doubled), known);
+      expect(preferStableMediaDuration(known, bloated), known);
+      expect(preferStableMediaDuration(known, reasonable), reasonable);
+    });
   });
 }

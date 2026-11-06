@@ -126,13 +126,51 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   static const Duration _playbackStateHeartbeat = Duration(seconds: 1);
 
   // Derived player streams.
+  Duration _getEffectiveDuration(Duration? reportedDuration) {
+    final currentSong =
+        _hasCurrentQueueIndex ? _queueList[_currentQueueIndex] : null;
+    final knownDuration =
+        currentSong != null ? readMediaDuration(currentSong['duration']) : null;
+    final mediaItemDuration = mediaItem.valueOrNull?.duration;
+    final targetKnown = knownDuration ?? mediaItemDuration;
+
+    if (targetKnown != null && targetKnown > Duration.zero) {
+      if (reportedDuration == null || reportedDuration <= Duration.zero) {
+        return targetKnown;
+      }
+      final ratio =
+          reportedDuration.inMilliseconds / targetKnown.inMilliseconds;
+      // Protect against native iOS AVPlayer doubling bug (e.g. ~2x duration reported for AAC streams)
+      if (ratio >= 1.5) {
+        return targetKnown;
+      }
+      // If player source is clipped (e.g. SponsorBlock segment), keep full duration for UI
+      if (_currentPlayerSourceIsClipped() && reportedDuration < targetKnown) {
+        return targetKnown;
+      }
+      return reportedDuration;
+    }
+
+    return reportedDuration ?? Duration.zero;
+  }
+
   late final Stream<PositionData> _positionDataStream =
       Rx.combineLatest3<Duration, Duration, Duration?, PositionData>(
         audioPlayer.positionStream,
         audioPlayer.bufferedPositionStream,
         audioPlayer.durationStream,
-        (position, bufferedPosition, duration) =>
-            PositionData(position, bufferedPosition, duration ?? Duration.zero),
+        (position, bufferedPosition, duration) {
+          final effectiveDuration = _getEffectiveDuration(duration);
+          final clampedPosition =
+              effectiveDuration > Duration.zero && position > effectiveDuration
+                  ? effectiveDuration
+                  : position;
+          return PositionData(
+            clampedPosition,
+            bufferedPosition,
+            effectiveDuration,
+          );
+        },
       ).distinct((prev, curr) {
         return (prev.position - curr.position).abs() < _positionDataThreshold &&
             prev.duration == curr.duration &&
@@ -236,6 +274,38 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
         _logStreamError('Duration stream error', error, stackTrace);
       },
     );
+
+    audioPlayer.positionStream
+        .throttleTime(const Duration(milliseconds: 300))
+        .listen(
+          (pos) {
+            if (audioPlayer.playing && _hasCurrentQueueIndex) {
+              final song = _queueList[_currentQueueIndex];
+              final knownDuration = readMediaDuration(song['duration']);
+              final playerDuration = audioPlayer.duration;
+              if (knownDuration != null && knownDuration > Duration.zero) {
+                // If player reports bloated duration (e.g. 2x on iOS AVPlayer AAC bug)
+                // or playback has reached the true track duration, complete the song and transition
+                // immediately to the next track rather than playing trailing silence.
+                final isBloated = playerDuration != null &&
+                    playerDuration.inMilliseconds >=
+                        (knownDuration.inMilliseconds * 1.5).round();
+                final reachedEnd = (isBloated && pos >= knownDuration) ||
+                    (pos >= knownDuration + const Duration(seconds: 2));
+
+                if (reachedEnd && !_completionEventPending) {
+                  logger.log(
+                    'Song reached expected duration ($knownDuration at $pos) with player duration ($playerDuration), completing song to prevent silence',
+                  );
+                  _handleProcessingStateChange(ProcessingState.completed);
+                }
+              }
+            }
+          },
+          onError: (error, stackTrace) {
+            _logStreamError('Position stream error', error, stackTrace);
+          },
+        );
 
     audioPlayer.playerStateStream
         .distinct()
@@ -680,7 +750,12 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
     try {
       final now = DateTime.now();
-      final currentPosition = audioPlayer.position;
+      final effectiveDuration = _getEffectiveDuration(audioPlayer.duration);
+      final rawPosition = audioPlayer.position;
+      final currentPosition =
+          effectiveDuration > Duration.zero && rawPosition > effectiveDuration
+              ? effectiveDuration
+              : rawPosition;
       final playerProcessingState = audioPlayer.processingState;
       final isPlaying =
           audioPlayer.playing &&
@@ -689,7 +764,11 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       final newProcessingState =
           _processingStateMap[playerProcessingState] ??
           AudioProcessingState.idle;
-      final bufferedPosition = audioPlayer.bufferedPosition;
+      final rawBufferedPosition = audioPlayer.bufferedPosition;
+      final bufferedPosition = effectiveDuration > Duration.zero &&
+              rawBufferedPosition > effectiveDuration
+          ? effectiveDuration
+          : rawBufferedPosition;
 
       final shouldEmitProgressTick =
           currentState != null &&
@@ -1777,10 +1856,15 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   @override
   Future<void> seek(Duration position) async {
     try {
+      final effectiveDuration = _getEffectiveDuration(audioPlayer.duration);
+      final clampedPosition =
+          effectiveDuration > Duration.zero && position > effectiveDuration
+              ? effectiveDuration
+              : (position < Duration.zero ? Duration.zero : position);
       listeningStatsService.recordListeningSessionProgress(
         wasPlaying: audioPlayer.playing,
       );
-      await audioPlayer.seek(position);
+      await audioPlayer.seek(clampedPosition);
       unawaited(listeningStatsService.flush());
     } catch (e, stackTrace) {
       logger.log('Error in seek()', error: e, stackTrace: stackTrace);
@@ -1789,11 +1873,12 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   @override
   Future<void> fastForward() {
+    final effectiveDuration = _getEffectiveDuration(audioPlayer.duration);
     final target = audioPlayer.position + const Duration(seconds: 15);
-    final trackDuration = audioPlayer.duration;
-    final clamped = (trackDuration != null && target > trackDuration)
-        ? trackDuration
-        : target;
+    final clamped =
+        (effectiveDuration > Duration.zero && target > effectiveDuration)
+            ? effectiveDuration
+            : target;
     return seek(clamped);
   }
 
@@ -2068,7 +2153,10 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           countCurrentTick: true,
           wasPlaying: wasPlayingBeforeSwap,
         )
-        ..startListeningSession(song, duration: audioPlayer.duration);
+        ..startListeningSession(
+          song,
+          duration: _getEffectiveDuration(audioPlayer.duration),
+        );
       if (Platform.isIOS || Platform.isMacOS) {
         try {
           final session = await AudioSession.instance;
@@ -2474,7 +2562,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       if (song != null) {
         listeningStatsService.startListeningSession(
           song,
-          duration: audioPlayer.duration,
+          duration: _getEffectiveDuration(audioPlayer.duration),
         );
         unawaited(updateRecentlyPlayed(song['ytid'], songFallback: song));
       }

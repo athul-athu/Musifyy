@@ -102,7 +102,7 @@ class AboutPage extends StatelessWidget {
                     ClipRRect(
                       borderRadius: BorderRadius.circular(14),
                       child: Image.network(
-                        'https://avatars.githubusercontent.com/u/79704324?v=4',
+                        'https://hyacswinmpmdyxiyovcn.supabase.co/storage/v1/object/public/avatars/62f7aab5-4a55-4370-a094-437c5660e27e/1789636262289.jpeg',
                         width: 52,
                         height: 52,
                         fit: BoxFit.cover,
@@ -114,7 +114,7 @@ class AboutPage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Valeri Gokadze',
+                            'Athul',
                             style: TextStyle(
                               color: Theme.of(context).colorScheme.onSurface,
                               fontWeight: FontWeight.w600,
@@ -143,7 +143,7 @@ class AboutPage extends StatelessWidget {
                           icon: FluentIcons.code_24_filled,
                           tooltip: 'Github',
                           onPressed: () {
-                            launchURL(Uri.parse('https://github.com/gokadzev'));
+                            launchURL(Uri.parse('https://github.com/athul-athu'));
                           },
                         ),
                         const SizedBox(width: 8),
@@ -151,7 +151,7 @@ class AboutPage extends StatelessWidget {
                           icon: FluentIcons.globe_24_filled,
                           tooltip: 'Website',
                           onPressed: () {
-                            launchURL(Uri.parse('https://gokadzev.github.io'));
+                            launchURL(Uri.parse('athu.me'));
                           },
                         ),
                       ],

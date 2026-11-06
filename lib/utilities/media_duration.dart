@@ -71,6 +71,14 @@ Duration? preferStableMediaDuration(
   final validReported = readMediaDuration(reported);
 
   if (validReported == null) return validKnown;
+  if (validKnown != null && validKnown > Duration.zero) {
+    // Protect against native iOS AVPlayer doubling bug:
+    // When playing certain AAC/VBR streams, AVPlayer calculates/reports roughly double the duration.
+    final ratio = validReported.inMilliseconds / validKnown.inMilliseconds;
+    if (ratio >= 1.5) {
+      return validKnown;
+    }
+  }
   if (preserveLongerKnown && validKnown != null && validReported < validKnown) {
     return validKnown;
   }
