@@ -44,6 +44,7 @@ const String downloadUrlArm64Key = 'arm64url';
 const String downloadFilename = 'Musify.apk';
 
 Future<void> checkAppUpdates() async {
+  if (!Platform.isAndroid) return;
   try {
     final response = await http.get(Uri.parse(checkUrl));
 
