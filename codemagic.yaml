@@ -83,21 +83,16 @@ workflows:
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
-    publishing:
-      email:
-        notify:
-          success: true
-          failure: true
-      # To publish to TestFlight or App Store automatically, choose either:
-      #
-      # Option 1 (Environment Variables from group 'app_store_credentials'):
-      # app_store_connect:
-      #   api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-      #   key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-      #   issuer_id: $APP_STORE_CONNECT_ISSUER_ID
-      #   submit_to_testflight: true
-      #
-      # Option 2 (Codemagic UI Integration - also uncomment 'integrations' above):
-      # app_store_connect:
-      #   auth: integration
-      #   submit_to_testflight: true
+    # Optional: To publish to email or TestFlight automatically, you can uncomment below:
+    # publishing:
+    #   email:
+    #     recipients:
+    #       - your_email@example.com
+    #     notify:
+    #       success: true
+    #       failure: true
+    #   app_store_connect:
+    #     api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+    #     key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+    #     issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+    #     submit_to_testflight: true
