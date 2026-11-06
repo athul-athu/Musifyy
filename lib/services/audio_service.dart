@@ -481,6 +481,9 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
     try {
       final session = await AudioSession.instance;
       await session.configure(const AudioSessionConfiguration.music());
+      if (Platform.isIOS || Platform.isMacOS) {
+        await session.setActive(true);
+      }
 
       // Always set loop mode to off - we handle all repeating through _handleSongCompletion
       // This ensures ProcessingState.completed is always fired for song transitions
@@ -1697,6 +1700,12 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       // Do NOT await play(): its future only completes when playback pauses/
       // stops/finishes (just_audio semantics), which would defer the resume
       // below until the song ended - losing the whole session.
+      if (Platform.isIOS || Platform.isMacOS) {
+        try {
+          final session = await AudioSession.instance;
+          await session.setActive(true);
+        } catch (_) {}
+      }
       unawaited(
         audioPlayer.play().catchError((Object e, StackTrace stackTrace) {
           logger.log(
@@ -2060,6 +2069,12 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           wasPlaying: wasPlayingBeforeSwap,
         )
         ..startListeningSession(song, duration: audioPlayer.duration);
+      if (Platform.isIOS || Platform.isMacOS) {
+        try {
+          final session = await AudioSession.instance;
+          await session.setActive(true);
+        } catch (_) {}
+      }
       unawaited(
         audioPlayer.play().catchError((Object e, StackTrace stackTrace) {
           logger.log(

@@ -19,6 +19,8 @@
  *     please visit: https://github.com/gokadzev/Musify
  */
 
+import 'dart:io';
+
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:musify/constants/app_constants.dart';
@@ -123,11 +125,27 @@ AudioOnlyStreamInfo? selectAudioOnlyStreamForQuality(
   if (availableSources.isEmpty) return null;
 
   final compatibleSources = _filterCompatibleAudioOnlySources(availableSources);
-  final selectionPool =
-      (compatibleSources.isNotEmpty
-            ? compatibleSources
-            : List<AudioOnlyStreamInfo>.from(availableSources))
-        ..sort((a, b) => b.bitrate.compareTo(a.bitrate));
+  final isApplePlatform = Platform.isIOS || Platform.isMacOS;
+
+  final List<AudioOnlyStreamInfo> selectionPool;
+  if (compatibleSources.isNotEmpty) {
+    selectionPool = List<AudioOnlyStreamInfo>.from(compatibleSources);
+  } else if (isApplePlatform) {
+    // On iOS/macOS, fallback only to streams with mp4/m4a container, avoiding WebM entirely
+    selectionPool = availableSources
+        .where((s) {
+          final c = s.container.name.toLowerCase();
+          return c == 'mp4' || c == 'm4a';
+        })
+        .toList();
+    if (selectionPool.isEmpty) {
+      return null;
+    }
+  } else {
+    selectionPool = List<AudioOnlyStreamInfo>.from(availableSources);
+  }
+
+  selectionPool.sort((a, b) => b.bitrate.compareTo(a.bitrate));
 
   final qualitySetting = audioQualitySetting.value;
 
@@ -153,6 +171,19 @@ int _audioOnlyCompatibilityScore(AudioOnlyStreamInfo stream) {
   final container = stream.container.name.toLowerCase();
 
   if (_isDolbyCodec(codec)) {
+    return 0;
+  }
+
+  // Apple's AVPlayer (iOS / macOS) only natively supports AAC (mp4a), MP3, ALAC.
+  // WebM container and Opus/Vorbis codecs are NOT supported by native AVPlayer.
+  if (Platform.isIOS || Platform.isMacOS) {
+    if ((codec.contains('mp4a') || codec.contains('aac')) &&
+        (container == 'mp4' || container == 'm4a')) {
+      return 3;
+    }
+    if (codec.contains('mp3') || container == 'mp3') {
+      return 2;
+    }
     return 0;
   }
 
