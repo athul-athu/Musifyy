@@ -1,4 +1,37 @@
 workflows:
+  android-release:
+    name: Android Production Release APK
+    max_build_duration: 30
+    instance_type: linux_x2
+    environment:
+      flutter: 3.47.7
+      java: 17
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: 'main'
+          include: true
+          source: true
+        - pattern: 'master'
+          include: true
+          source: true
+    scripts:
+      - name: Flutter dependencies & code generation
+        script: |
+          flutter packages pub get
+          flutter gen-l10n
+      - name: Build Android Release APK
+        script: |
+          flutter build apk --release --flavor github
+      - name: Copy output APK
+        script: |
+          mkdir -p build/output
+          cp build/app/outputs/flutter-apk/app-github-release.apk build/output/Musify-release.apk
+    artifacts:
+      - build/app/outputs/flutter-apk/*.apk
+      - build/output/*.apk
+
   ios-adhoc-ipa:
     name: iOS Sideloadable IPA (No Code Signing Required)
     max_build_duration: 60

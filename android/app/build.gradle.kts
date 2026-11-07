@@ -68,15 +68,20 @@ android {
         }
     }
 
-    signingConfigs {
-        create("release") {
-            // From decoded key
-            storeFile = file("key.jks")
+    val hasReleaseKeystore = keystorePropertiesFile.exists() &&
+        keystoreProperties.containsKey("keyAlias") &&
+        keystoreProperties.containsKey("keyPassword") &&
+        keystoreProperties.containsKey("storePassword")
 
-            // From key.properties
-            keyAlias = keystoreProperties["keyAlias"] as String?
-            keyPassword = keystoreProperties["keyPassword"] as String?
-            storePassword = keystoreProperties["storePassword"] as String?
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                val customStoreFile = keystoreProperties["storeFile"] as String?
+                storeFile = if (customStoreFile != null) file(customStoreFile) else file("key.jks")
+                keyAlias = keystoreProperties["keyAlias"] as String?
+                keyPassword = keystoreProperties["keyPassword"] as String?
+                storePassword = keystoreProperties["storePassword"] as String?
+            }
         }
     }
 
@@ -93,7 +98,11 @@ android {
 
     buildTypes {
         getByName("release") {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
