@@ -66,8 +66,8 @@ List<RadioStation> radioStationsDB = [
   ),
   const RadioStation(
     id: 'r_global_rnb',
-    name: 'MY FM',
-    image: 'https://cdn-profiles.tunein.com/s199317/images/logog.jpg?t=1',
+    name: 'MY radio',
+    image: 'https://hyacswinmpmdyxiyovcn.supabase.co/storage/v1/object/public/avatars/62f7aab5-4a55-4370-a094-437c5660e27e/1789636262289.jpeg',
     streamUrl: 'https://musify-api-331v.onrender.com/api/radio/stream',
     genre: 'R&B',
   ),
