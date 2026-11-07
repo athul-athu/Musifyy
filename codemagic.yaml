@@ -31,6 +31,11 @@ workflows:
       - name: Package IPA for Sideloading
         script: |
           cd build/ios/iphoneos
+          # Ensure icon PNGs are present in the app bundle root for sideloaders
+          cp -f ../../../ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@2x.png Runner.app/AppIcon60x60@2x.png 2>/dev/null || true
+          cp -f ../../../ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@3x.png Runner.app/AppIcon60x60@3x.png 2>/dev/null || true
+          cp -f ../../../ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@2x.png Runner.app/AppIcon76x76@2x~ipad.png 2>/dev/null || true
+          cp -f ../../../ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png Runner.app/Icon-App-1024x1024@1x.png 2>/dev/null || true
           mkdir -p Payload
           cp -r Runner.app Payload/
           zip -r Musify-unsigned.ipa Payload
