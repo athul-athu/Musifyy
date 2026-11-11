@@ -36,9 +36,9 @@ import 'package:musify/utilities/url_launcher.dart';
 import 'package:musify/widgets/auto_format_text.dart';
 
 const String checkUrl =
-    'https://raw.githubusercontent.com/gokadzev/Musify/update/check.json';
+    'https://raw.githubusercontent.com/athul-athu/Musifyy/master/update/check.json';
 const String releasesUrl =
-    'https://api.github.com/repos/gokadzev/Musify/releases/latest';
+    'https://api.github.com/repos/athul-athu/Musifyy/releases/latest';
 const String downloadUrlKey = 'url';
 const String downloadUrlArm64Key = 'arm64url';
 const String downloadFilename = 'Musify.apk';
@@ -63,17 +63,21 @@ Future<void> checkAppUpdates() async {
       return;
     }
 
-    final releasesRequest = await http.get(Uri.parse(releasesUrl));
-
-    if (releasesRequest.statusCode != 200) {
-      logger.log(
-        'Fetch update API (releasesUrl) call returned status code ${response.statusCode}',
-      );
-      return;
+    var changelog =
+        'A new update (v$latestVersion) is available with performance improvements and new features.';
+    try {
+      final releasesRequest = await http.get(Uri.parse(releasesUrl));
+      if (releasesRequest.statusCode == 200) {
+        final releasesResponse =
+            json.decode(releasesRequest.body) as Map<String, dynamic>;
+        if (releasesResponse['body'] != null &&
+            releasesResponse['body'].toString().isNotEmpty) {
+          changelog = releasesResponse['body'].toString();
+        }
+      }
+    } catch (releasesError) {
+      logger.log('Failed to fetch release changelog: $releasesError');
     }
-
-    final releasesResponse =
-        json.decode(releasesRequest.body) as Map<String, dynamic>;
 
     await showDialog(
       context: NavigationManager().context,
@@ -137,7 +141,7 @@ Future<void> checkAppUpdates() async {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: SingleChildScrollView(
-                  child: AutoFormatText(text: releasesResponse['body']),
+                  child: AutoFormatText(text: changelog),
                 ),
               ),
             ],

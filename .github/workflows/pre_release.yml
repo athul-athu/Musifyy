@@ -46,7 +46,7 @@ jobs:
     - name: Release arm64 APK
       uses: svenstaro/upload-release-action@v2
       with:
-        repo_name: gokadzev/Musify
+        repo_name: ${{ github.repository }}
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         file: build/app/outputs/flutter-apk/app-arm64-v8a-github-release.apk
         asset_name: Musify-arm64-v8a.apk

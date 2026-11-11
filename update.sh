@@ -9,3 +9,13 @@ filename="lib/constants/version.dart"
 
 # Write the version to the Dart file
 echo "const $variable = '$version';" > $filename
+
+# Write the version to update/check.json
+cat <<EOF > update/check.json
+{
+  "version": "$version",
+  "url": "https://github.com/athul-athu/Musifyy/releases/latest/download/Musify.apk",
+  "arm64url": "https://github.com/athul-athu/Musifyy/releases/latest/download/Musify-arm64-v8a.apk",
+  "announcementurl": null
+}
+EOF
