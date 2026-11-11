@@ -151,7 +151,7 @@ class AboutPage extends StatelessWidget {
                           icon: FluentIcons.globe_24_filled,
                           tooltip: 'Website',
                           onPressed: () {
-                            launchURL(Uri.parse('athu.me'));
+                            launchURL(Uri.parse('https://portfolio-git-main-athul-krishna-k-as-projects.vercel.app/'));
                           },
                         ),
                       ],

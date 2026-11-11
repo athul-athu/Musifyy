@@ -64,7 +64,7 @@ workflows:
       vars:
         XCODE_WORKSPACE: "ios/Runner.xcworkspace"
         XCODE_SCHEME: "Runner"
-        BUNDLE_ID: "com.gokadzev.musify"
+        BUNDLE_ID: "com.athul.musifyy"
     triggering:
       events:
         - tag

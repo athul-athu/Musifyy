@@ -125,7 +125,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.gokadzev.musify</string>
+			<string>com.athul.musifyy</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>musify</string>

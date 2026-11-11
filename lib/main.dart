@@ -290,7 +290,7 @@ Future<void> initialisation() async {
     audioHandler = await AudioService.init(
       builder: MusifyAudioHandler.new,
       config: const AudioServiceConfig(
-        androidNotificationChannelId: 'com.gokadzev.musify',
+        androidNotificationChannelId: 'com.athul.musifyy',
         androidNotificationChannelName: 'Musify',
         androidNotificationIcon: 'drawable/ic_launcher_foreground',
         androidShowNotificationBadge: true,
