@@ -65,6 +65,7 @@ Future<void> checkAppUpdates() async {
 
     var changelog =
         'A new update (v$latestVersion) is available with performance improvements and new features.';
+    List<dynamic>? releaseAssets;
     try {
       final releasesRequest = await http.get(Uri.parse(releasesUrl));
       if (releasesRequest.statusCode == 200) {
@@ -73,6 +74,9 @@ Future<void> checkAppUpdates() async {
         if (releasesResponse['body'] != null &&
             releasesResponse['body'].toString().isNotEmpty) {
           changelog = releasesResponse['body'].toString();
+        }
+        if (releasesResponse['assets'] is List) {
+          releaseAssets = releasesResponse['assets'] as List<dynamic>;
         }
       }
     } catch (releasesError) {
@@ -160,7 +164,7 @@ Future<void> checkAppUpdates() async {
             ),
             FilledButton.icon(
               onPressed: () {
-                getDownloadUrl(map).then(
+                getDownloadUrl(map, releaseAssets: releaseAssets).then(
                   (url) => {launchURL(Uri.parse(url)), Navigator.pop(context)},
                 );
               },
@@ -265,16 +269,58 @@ Future<String> getCPUArchitecture() async {
   return cpu;
 }
 
-Future<String> getDownloadUrl(Map<String, dynamic> map) async {
+Future<String> getDownloadUrl(
+  Map<String, dynamic> map, {
+  List<dynamic>? releaseAssets,
+}) async {
   if (Platform.isIOS) {
+    if (releaseAssets != null && releaseAssets.isNotEmpty) {
+      final ipaAsset = releaseAssets.firstWhere(
+        (a) => a['name']?.toString().toLowerCase().endsWith('.ipa') ?? false,
+        orElse: () => null,
+      );
+      if (ipaAsset != null && ipaAsset['browser_download_url'] != null) {
+        return ipaAsset['browser_download_url'].toString();
+      }
+    }
     return map['ipaUrl']?.toString() ??
         map[downloadUrlKey]?.toString() ??
         'https://github.com/athul-athu/Musifyy/releases/latest';
   }
+
+  if (releaseAssets != null && releaseAssets.isNotEmpty) {
+    final cpuArchitecture = await getCPUArchitecture();
+    if (cpuArchitecture == 'aarch64') {
+      final arm64Asset = releaseAssets.firstWhere(
+        (a) {
+          final name = a['name']?.toString().toLowerCase() ?? '';
+          return name.endsWith('.apk') &&
+              (name.contains('arm64') || name.contains('aarch64'));
+        },
+        orElse: () => null,
+      );
+      if (arm64Asset != null && arm64Asset['browser_download_url'] != null) {
+        return arm64Asset['browser_download_url'].toString();
+      }
+    }
+
+    final apkAsset = releaseAssets.firstWhere(
+      (a) => a['name']?.toString().toLowerCase().endsWith('.apk') ?? false,
+      orElse: () => null,
+    );
+    if (apkAsset != null && apkAsset['browser_download_url'] != null) {
+      return apkAsset['browser_download_url'].toString();
+    }
+  }
+
   final cpuArchitecture = await getCPUArchitecture();
-  final url = cpuArchitecture == 'aarch64'
+  final url = cpuArchitecture == 'aarch64' &&
+          map[downloadUrlArm64Key] != null &&
+          map[downloadUrlArm64Key].toString().isNotEmpty
       ? map[downloadUrlArm64Key].toString()
-      : map[downloadUrlKey].toString();
+      : (map[downloadUrlKey] ??
+              'https://github.com/athul-athu/Musifyy/releases/latest')
+          .toString();
 
   return url;
 }
