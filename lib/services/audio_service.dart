@@ -62,7 +62,14 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       );
     } else {
       _androidEqualizer = null;
-      audioPlayer = AudioPlayer();
+      audioPlayer = AudioPlayer(
+        audioLoadConfiguration: const AudioLoadConfiguration(
+          darwinLoadControl: DarwinLoadControl(
+            preferredForwardBufferDuration: Duration(seconds: 30),
+            canUseNetworkResourcesForLiveStreamingWhilePaused: true,
+          ),
+        ),
+      );
     }
 
     _androidAutoBrowser = AndroidAutoBrowser(this);
@@ -102,6 +109,12 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   bool _completionHandlerLoadStarted = false;
   String? _lastError;
   int _consecutiveErrors = 0;
+  Map? _activeRadioStreamInfo;
+
+  bool get isCurrentTrackLive =>
+      (currentSong?['isLive'] == true) ||
+      (mediaItem.valueOrNull?.extras?['isLive'] == true) ||
+      _activeRadioStreamInfo != null;
 
   // Timers and sleep-timer state.
   Timer? _sleepTimer;
@@ -281,6 +294,13 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           (pos) {
             if (audioPlayer.playing && _hasCurrentQueueIndex) {
               final song = _queueList[_currentQueueIndex];
+              // Live streams and radio stations do not have an end time; skip completion checks
+              if (isCurrentTrackLive ||
+                  song['isLive'] == true ||
+                  song['duration'] == null ||
+                  (mediaItem.valueOrNull?.extras?['isLive'] ?? false)) {
+                return;
+              }
               final knownDuration = readMediaDuration(song['duration']);
               final playerDuration = audioPlayer.duration;
               if (knownDuration != null && knownDuration > Duration.zero) {
@@ -551,6 +571,34 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
     try {
       final session = await AudioSession.instance;
       await session.configure(const AudioSessionConfiguration.music());
+
+      session.interruptionEventStream.listen((event) {
+        if (event.begin) {
+          switch (event.type) {
+            case AudioInterruptionType.duck:
+              break;
+            case AudioInterruptionType.pause:
+            case AudioInterruptionType.unknown:
+              audioPlayer.pause();
+              break;
+          }
+        } else {
+          switch (event.type) {
+            case AudioInterruptionType.duck:
+              break;
+            case AudioInterruptionType.pause:
+              audioPlayer.play();
+              break;
+            case AudioInterruptionType.unknown:
+              break;
+          }
+        }
+      });
+
+      session.becomingNoisyEventStream.listen((_) {
+        audioPlayer.pause();
+      });
+
       if (Platform.isIOS || Platform.isMacOS) {
         await session.setActive(true);
       }
@@ -839,6 +887,12 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   void _handleProcessingStateChange(ProcessingState state) {
     try {
       if (state == ProcessingState.completed) {
+        if (isCurrentTrackLive) {
+          logger.log('Live radio stream interrupted/completed. Reconnecting...');
+          unawaited(_reconnectRadioStream());
+          return;
+        }
+
         if (sleepTimerEndOfSong) {
           sleepTimerExpired = true;
           sleepTimerEndOfSong = false;
@@ -896,6 +950,12 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       playNextSongAutomatically.value;
 
   void _handlePlaybackError() {
+    if (isCurrentTrackLive) {
+      logger.log('Playback error on live radio stream. Auto-reconnecting...');
+      unawaited(_reconnectRadioStream());
+      return;
+    }
+
     _consecutiveErrors++;
     logger.log(
       'Playback error occurred. Consecutive errors: $_consecutiveErrors',
@@ -918,6 +978,24 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       });
     } else {
       _lastError = null;
+    }
+  }
+
+  Future<void> _reconnectRadioStream() async {
+    final radio = _activeRadioStreamInfo;
+    if (radio == null) return;
+    try {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!isCurrentTrackLive) return;
+      await playRadioStream(
+        id: radio['id']?.toString() ?? radio['ytid']?.toString() ?? '',
+        name: radio['title']?.toString() ?? 'Radio',
+        streamUrl: radio['streamUrl']?.toString() ?? '',
+        image: radio['highResImage']?.toString() ?? radio['lowResImage']?.toString() ?? '',
+        genre: radio['artist']?.toString(),
+      );
+    } catch (e, stackTrace) {
+      logger.log('Error reconnecting radio stream', error: e, stackTrace: stackTrace);
     }
   }
 
@@ -949,6 +1027,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
     // Repeat modes keep the queue cycling, so extending it would corrupt it.
     if (offlineMode.value ||
         hasNext ||
+        isCurrentTrackLive ||
         repeatNotifier.value != AudioServiceRepeatMode.none) {
       return;
     }
@@ -976,7 +1055,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
       // The user may have skipped, paused or extended the queue meanwhile.
       final isStillRelevant =
-          audioPlayer.playing &&
+          (audioPlayer.playing || audioPlayer.processingState == ProcessingState.completed) &&
           !hasNext &&
           _getCurrentSongForRecommendations()?['ytid']?.toString() == baseYtid;
       if (recommended == null || !isStillRelevant) return;
@@ -1944,6 +2023,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       }
 
       _lastError = null;
+      _activeRadioStreamInfo = null;
       if (audioPlayer.playing) {
         listeningStatsService.recordListeningSessionProgress(
           wasPlaying: audioPlayer.playing,
@@ -2313,9 +2393,11 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
         'lowResImage': image,
         'duration': null, // Radio streams are live
         'isLive': true,
+        'streamUrl': streamUrl,
       };
 
       _lastError = null;
+      _activeRadioStreamInfo = radioSong;
       final wasPlayingBeforeSwap = audioPlayer.playing;
       if (audioPlayer.playing) {
         listeningStatsService.recordListeningSessionProgress(
@@ -2324,10 +2406,26 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
         await audioPlayer.pause();
       }
 
+      // Synchronize internal queue list with the radio stream
+      _queueList
+        ..clear()
+        ..add(radioSong);
+      _currentQueueIndex = 0;
+      _currentLoadingIndex = -1;
+      _currentLoadingTransitionId = -1;
+
       // Update media item and queue for mini player visibility
       final mediaItem = mapToMediaItem(radioSong);
       this.mediaItem.add(mediaItem);
       queue.add([mediaItem]);
+
+      // Ensure iOS audio session is active for background streaming
+      if (Platform.isIOS || Platform.isMacOS) {
+        try {
+          final session = await AudioSession.instance;
+          await session.setActive(true);
+        } catch (_) {}
+      }
 
       // Build audio source from stream URL
       final audioSource = await buildAudioSource(
