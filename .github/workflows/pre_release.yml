@@ -41,14 +41,14 @@ jobs:
     - run: flutter analyze .
      # Build arm64 APK for GitHub pre-release
     - name: Build arm64 APK
-      run: flutter build apk --release --split-per-abi --target-platform="android-arm64" --flavor github
+      run: flutter build apk --release --split-per-abi --target-platform="android-arm64"
     # Pre-release arm64 generated APK
     - name: Release arm64 APK
       uses: svenstaro/upload-release-action@v2
       with:
         repo_name: ${{ github.repository }}
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: build/app/outputs/flutter-apk/app-arm64-v8a-github-release.apk
+        file: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
         asset_name: Musify-arm64-v8a.apk
         tag: ${{ github.ref }}
         prerelease: true

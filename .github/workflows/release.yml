@@ -74,7 +74,7 @@ jobs:
 
       # Build arm64 APK for GitHub release
       - name: Build arm64 APK
-        run: flutter build apk --release --split-per-abi --target-platform="android-arm64" --flavor github
+        run: flutter build apk --release --split-per-abi --target-platform="android-arm64"
 
       # Release arm64 generated APK
       - name: Release arm64 APK
@@ -82,7 +82,7 @@ jobs:
         with:
           repo_name: ${{ github.repository }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: build/app/outputs/flutter-apk/app-arm64-v8a-github-release.apk
+          file: build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
           asset_name: Musify-arm64-v8a.apk
           tag: ${{ steps.extract_version.outputs.version }}
           prerelease: false
@@ -90,7 +90,7 @@ jobs:
 
       # Build universal APK
       - name: Build universal APK
-        run: flutter build apk --release --flavor github
+        run: flutter build apk --release
 
       # Release universal generated APK
       - name: Release universal APK
@@ -98,7 +98,7 @@ jobs:
         with:
           repo_name: ${{ github.repository }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: build/app/outputs/flutter-apk/app-github-release.apk
+          file: build/app/outputs/flutter-apk/app-release.apk
           asset_name: Musify.apk
           tag: ${{ steps.extract_version.outputs.version }}
           prerelease: false

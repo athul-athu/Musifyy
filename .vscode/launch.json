@@ -5,33 +5,14 @@
             "name": "Musify",
             "request": "launch",
             "type": "dart",
-            "program": "lib/main.dart",
-            "args": [
-                "--flavor",
-                "github"
-            ]
+            "program": "lib/main.dart"
         },
         {
             "name": "Musify (Release)",
             "request": "launch",
             "type": "dart",
             "flutterMode": "release",
-            "program": "lib/main.dart",
-            "args": [
-                "--flavor",
-                "github"
-            ]
-        },
-        {
-            "name": "Musify (F-Droid)",
-            "request": "launch",
-            "type": "dart",
-            "program": "lib/main_fdroid.dart",
-            "args": [
-                "--flavor",
-                "fdroid"
-            ]
+            "program": "lib/main.dart"
         }
     ]
 }
-
