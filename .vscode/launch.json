@@ -1,0 +1,37 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Musify",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "args": [
+                "--flavor",
+                "github"
+            ]
+        },
+        {
+            "name": "Musify (Release)",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "release",
+            "program": "lib/main.dart",
+            "args": [
+                "--flavor",
+                "github"
+            ]
+        },
+        {
+            "name": "Musify (F-Droid)",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main_fdroid.dart",
+            "args": [
+                "--flavor",
+                "fdroid"
+            ]
+        }
+    ]
+}
+

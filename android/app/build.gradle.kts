@@ -128,4 +128,17 @@ kotlin {
 
 afterEvaluate {
     apply(from = "../no-build-id.gradle")
+
+    tasks.matching { it.name in listOf("assembleDebug", "assembleRelease") }.configureEach {
+        doLast {
+            val flutterApkDir = file("$rootDir/../build/app/outputs/flutter-apk")
+            val isDebug = name.contains("Debug", ignoreCase = true)
+            val variant = if (isDebug) "debug" else "release"
+            val githubApk = file("$flutterApkDir/app-github-$variant.apk")
+            val defaultApk = file("$flutterApkDir/app-$variant.apk")
+            if (githubApk.exists()) {
+                githubApk.copyTo(defaultApk, overwrite = true)
+            }
+        }
+    }
 }
