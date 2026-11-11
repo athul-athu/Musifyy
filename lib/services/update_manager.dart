@@ -44,7 +44,7 @@ const String downloadUrlArm64Key = 'arm64url';
 const String downloadFilename = 'Musify.apk';
 
 Future<void> checkAppUpdates() async {
-  if (!Platform.isAndroid) return;
+  if (!Platform.isAndroid && !Platform.isIOS) return;
   try {
     final response = await http.get(Uri.parse(checkUrl));
 
@@ -266,6 +266,11 @@ Future<String> getCPUArchitecture() async {
 }
 
 Future<String> getDownloadUrl(Map<String, dynamic> map) async {
+  if (Platform.isIOS) {
+    return map['ipaUrl']?.toString() ??
+        map[downloadUrlKey]?.toString() ??
+        'https://github.com/athul-athu/Musifyy/releases/latest';
+  }
   final cpuArchitecture = await getCPUArchitecture();
   final url = cpuArchitecture == 'aarch64'
       ? map[downloadUrlArm64Key].toString()
