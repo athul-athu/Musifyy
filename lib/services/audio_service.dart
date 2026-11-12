@@ -27,8 +27,9 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
         audioLoadConfiguration: const AudioLoadConfiguration(
           androidLoadControl: AndroidLoadControl(
             maxBufferDuration: Duration(seconds: 60),
-            bufferForPlaybackDuration: Duration(milliseconds: 500),
-            bufferForPlaybackAfterRebufferDuration: Duration(seconds: 3),
+            bufferForPlaybackDuration: Duration(milliseconds: 1000),
+            bufferForPlaybackAfterRebufferDuration: Duration(seconds: 2),
+            prioritizeTimeOverSizeThresholds: true,
           ),
         ),
       );
@@ -44,7 +45,8 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       audioPlayer = AudioPlayer(
         audioLoadConfiguration: const AudioLoadConfiguration(
           darwinLoadControl: DarwinLoadControl(
-            preferredForwardBufferDuration: Duration(seconds: 30),
+            automaticallyWaitsToMinimizeStalling: false,
+            preferredForwardBufferDuration: Duration(seconds: 3),
             canUseNetworkResourcesForLiveStreamingWhilePaused: true,
           ),
         ),
@@ -90,6 +92,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   int _consecutiveErrors = 0;
   Map? _activeRadioStreamInfo;
   bool _isReconnectingRadio = false;
+  bool _isLoadingRadio = false;
   bool _userPausedRadio = false;
 
   bool get isCurrentTrackLive =>
@@ -242,6 +245,9 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           },
           onError: (error, stackTrace) {
             _logStreamError('Playback event stream error', error, stackTrace);
+            if (isCurrentTrackLive && !_userPausedRadio) {
+              unawaited(_reconnectRadioStream());
+            }
           },
         );
 
@@ -249,6 +255,9 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       _handleProcessingStateChange,
       onError: (error, stackTrace) {
         _logStreamError('Processing state stream error', error, stackTrace);
+        if (isCurrentTrackLive && !_userPausedRadio) {
+          unawaited(_reconnectRadioStream());
+        }
       },
     );
 
@@ -317,7 +326,13 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
               state,
               currentSong: currentSong,
             );
-            if (state.processingState == ProcessingState.idle &&
+            if (isCurrentTrackLive &&
+                !_userPausedRadio &&
+                !state.playing &&
+                (state.processingState == ProcessingState.idle ||
+                    state.processingState == ProcessingState.completed)) {
+              unawaited(_reconnectRadioStream());
+            } else if (state.processingState == ProcessingState.idle &&
                 !state.playing &&
                 _lastError != null) {
               Future.microtask(_handlePlaybackError);
@@ -326,6 +341,9 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           },
           onError: (error, stackTrace) {
             _logStreamError('Player state stream error', error, stackTrace);
+            if (isCurrentTrackLive && !_userPausedRadio) {
+              unawaited(_reconnectRadioStream());
+            }
           },
         );
 
@@ -790,9 +808,10 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           audioPlayer.playing &&
           playerProcessingState != ProcessingState.completed;
       final currentState = playbackState.valueOrNull;
-      final newProcessingState =
-          _processingStateMap[playerProcessingState] ??
-          AudioProcessingState.idle;
+      final newProcessingState = _isReconnectingRadio
+          ? AudioProcessingState.buffering
+          : (_processingStateMap[playerProcessingState] ??
+              AudioProcessingState.idle);
       final rawBufferedPosition = audioPlayer.bufferedPosition;
       final bufferedPosition = effectiveDuration > Duration.zero &&
               rawBufferedPosition > effectiveDuration
@@ -963,23 +982,23 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   }
 
   Future<void> _reconnectRadioStream() async {
-    if (_isReconnectingRadio || _userPausedRadio) return;
+    if (_isReconnectingRadio || _isLoadingRadio || _userPausedRadio) return;
     final radio = _activeRadioStreamInfo;
     if (radio == null) return;
 
     _isReconnectingRadio = true;
+    _updatePlaybackState();
     try {
-      const maxAttempts = 8;
       final retryDelays = [
-        const Duration(milliseconds: 600),
+        const Duration(milliseconds: 500),
         const Duration(seconds: 1),
         const Duration(seconds: 2),
-        const Duration(seconds: 2),
-        const Duration(seconds: 3),
         const Duration(seconds: 4),
-        const Duration(seconds: 5),
-        const Duration(seconds: 5),
+        const Duration(seconds: 8),
+        const Duration(seconds: 16),
+        const Duration(seconds: 30),
       ];
+      final maxAttempts = retryDelays.length;
 
       for (var attempt = 0; attempt < maxAttempts; attempt++) {
         if (!isCurrentTrackLive || _userPausedRadio) break;
@@ -988,7 +1007,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
         if (!isCurrentTrackLive || _userPausedRadio) break;
 
         logger.log(
-          'Reconnecting radio stream (attempt ${attempt + 1}/$maxAttempts)...',
+          'Reconnecting radio stream (attempt ${attempt + 1}/$maxAttempts) after ${retryDelays[attempt].inMilliseconds}ms...',
         );
 
         final success = await playRadioStream(
@@ -1004,7 +1023,8 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
         if (success &&
             audioPlayer.playing &&
-            audioPlayer.processingState != ProcessingState.completed) {
+            audioPlayer.processingState != ProcessingState.completed &&
+            audioPlayer.processingState != ProcessingState.idle) {
           logger.log(
             'Radio stream reconnected successfully on attempt ${attempt + 1}',
           );
@@ -1019,6 +1039,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       );
     } finally {
       _isReconnectingRadio = false;
+      _updatePlaybackState();
     }
   }
 
@@ -1873,7 +1894,8 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
     try {
       _userPausedRadio = false;
       if (isCurrentTrackLive &&
-          audioPlayer.processingState == ProcessingState.completed) {
+          (audioPlayer.processingState == ProcessingState.completed ||
+              audioPlayer.processingState == ProcessingState.idle)) {
         unawaited(_reconnectRadioStream());
         return;
       }
@@ -1934,6 +1956,9 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
     _currentLoadingTransitionId = -1;
     _lastError = null;
     _consecutiveErrors = 0;
+    if (isCurrentTrackLive) {
+      _userPausedRadio = true;
+    }
     try {
       listeningStatsService.finishListeningSession(
         countCurrentTick: true,
@@ -2433,6 +2458,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       _activeRadioStreamInfo = radioSong;
       if (!isReconnect) {
         _userPausedRadio = false;
+        _isLoadingRadio = true;
       }
       final wasPlayingBeforeSwap = audioPlayer.playing;
       if (!isReconnect && audioPlayer.playing) {
@@ -2509,6 +2535,10 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       );
       _lastError = e.toString();
       return false;
+    } finally {
+      if (!isReconnect) {
+        _isLoadingRadio = false;
+      }
     }
   }
 
