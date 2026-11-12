@@ -109,15 +109,16 @@ class SettingsPage extends StatelessWidget {
               onChanged: (value) => _togglePureBlack(context, value),
             ),
           ),
-        CustomBar(
-          context.l10n!.dynamicColor,
-          FluentIcons.toggle_left_24_regular,
-          description: context.l10n!.dynamicColorDescription,
-          trailing: Switch(
-            value: useSystemColor.value,
-            onChanged: (value) => _toggleSystemColor(context, value),
+        if (Platform.isAndroid)
+          CustomBar(
+            context.l10n!.dynamicColor,
+            FluentIcons.toggle_left_24_regular,
+            description: context.l10n!.dynamicColorDescription,
+            trailing: Switch(
+              value: useSystemColor.value,
+              onChanged: (value) => _toggleSystemColor(context, value),
+            ),
           ),
-        ),
 
         ValueListenableBuilder<bool>(
           valueListenable: showAudioQualityBadge,
