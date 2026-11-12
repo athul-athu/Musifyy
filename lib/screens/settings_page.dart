@@ -448,17 +448,10 @@ class SettingsPage extends StatelessWidget {
           title: context.l10n!.others,
           icon: FluentIcons.more_circle_24_filled,
         ),
-       
-       
-        CustomBar(
-          '${context.l10n!.copyLogs} (${logger.getLogCount()})',
-          FluentIcons.error_circle_24_regular,
-          onTap: () async => showToast(context, await logger.copyLogs(context)),
-        ),
         CustomBar(
           context.l10n!.about,
           FluentIcons.book_information_24_regular,
-          borderRadius: commonCustomBarRadiusLast,
+          borderRadius: commonCustomBarRadius,
           onTap: () => NavigationManager.router.go('/settings/about'),
         ),
       ],
