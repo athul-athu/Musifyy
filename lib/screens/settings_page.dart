@@ -209,20 +209,6 @@ class SettingsPage extends StatelessWidget {
     return Column(
       children: [
         ValueListenableBuilder<bool>(
-          valueListenable: sponsorBlockSupport,
-          builder: (_, value, __) {
-            return CustomBar(
-              'SponsorBlock',
-              FluentIcons.cut_24_regular,
-              description: context.l10n!.sponsorBlockDescription,
-              trailing: Switch(
-                value: value,
-                onChanged: (value) => _toggleSponsorBlock(context, value),
-              ),
-            );
-          },
-        ),
-        ValueListenableBuilder<bool>(
           valueListenable: playNextSongAutomatically,
           builder: (_, value, __) {
             return CustomBar(
@@ -663,12 +649,6 @@ class SettingsPage extends StatelessWidget {
     // Trigger router refresh and notify about the change
     NavigationManager.refreshRouter();
 
-    showToast(context, context.l10n!.settingChangedMsg);
-  }
-
-  void _toggleSponsorBlock(BuildContext context, bool value) {
-    addOrUpdateData<bool>('settings', 'sponsorBlockSupport', value);
-    sponsorBlockSupport.value = value;
     showToast(context, context.l10n!.settingChangedMsg);
   }
 
