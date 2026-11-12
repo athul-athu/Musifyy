@@ -1,5 +1,41 @@
 List<Map<String, dynamic>> playlistsDB = [
   {
+    'ytid': 'PLnO8uDr9uT6GIi5rMqepocZEv6gIaCuH6',
+    'title': 'Malayalam Top Hits',
+    'image': 'https://i.ytimg.com/vi/tOM-nWPcR4U/hqdefault.jpg',
+    'list': [],
+  },
+  {
+    'ytid': 'PLemKoHGiJPQYYojmtP2Xi5UzPv-0DRbgZ',
+    'title': 'Malayalam Hit Songs',
+    'image': 'https://i.ytimg.com/vi/scRQR-FRfIo/hq720.jpg',
+    'list': [],
+  },
+  {
+    'ytid': 'PLjity7Lwv-zra6QpOGaUew17tuDBdznf_',
+    'title': 'Best of Sid Sriram',
+    'image': 'https://i.ytimg.com/vi/N_iW0VC3IdI/hqdefault.jpg',
+    'list': [],
+  },
+  {
+    'ytid': 'RDCLAK5uy_kmTsohtKf47XwDy0wFYU0ffkmZC0k73OE',
+    'title': 'Presenting Sid Sriram',
+    'image': 'https://img.youtube.com/vi/_cRwbzy0xuM/hqdefault.jpg',
+    'list': [],
+  },
+  {
+    'ytid': 'PLeIAoV5umV0upTzeN2b8_JY5Ib33B4w_v',
+    'title': 'Jennifer Lopez - Dance Hits (On The Floor)',
+    'image': 'https://i.ytimg.com/vi/PpaMvt6PUEM/hqdefault.jpg',
+    'list': [],
+  },
+  {
+    'ytid': 'PLqZzaufMbC51U9w1I8zEGk50xlsWBjWKl',
+    'title': '2010s Dance Party & Club Hits',
+    'image': 'https://i.ytimg.com/vi/KSgKKSny0Qo/hqdefault.jpg',
+    'list': [],
+  },
+  {
     'ytid': 'PLgzTt0k8mXzEk586ze4BjvDXR7c-TUSnx',
     'title': 'Top 50 Global',
     'image': 'https://charts-images.scdn.co/assets/locale_en/regional/daily/region_global_large.jpg',

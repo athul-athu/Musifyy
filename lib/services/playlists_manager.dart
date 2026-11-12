@@ -7,6 +7,8 @@ import 'package:musify/database/playlists.db.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart' show logger;
 import 'package:musify/services/artist_service.dart';
+import 'package:musify/services/common_services.dart'
+    show userLikedSongsList, userRecentlyPlayed;
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/playlist_download_service.dart';
 import 'package:musify/services/proxy_manager.dart';
@@ -932,8 +934,7 @@ Future<List> getPlaylists({
   }
 
   if (playlistsNum != null && query == null) {
-    final suggestedPlaylists = List<Map>.from(playlists)..shuffle();
-    return suggestedPlaylists.take(playlistsNum).toList();
+    return getSuggestedPlaylists(count: playlistsNum);
   }
 
   if (type != 'all') {
@@ -945,6 +946,120 @@ Future<List> getPlaylists({
   }
 
   return playlists;
+}
+
+/// In-memory cache for dynamically discovered taste-based playlists.
+final Map<String, List<Map>> _discoveredPlaylistsCache = {};
+
+/// Extracts the user's top music taste keywords (artists, genres) from listening history.
+List<String> _extractUserTasteKeywords() {
+  final counts = <String, int>{};
+
+  void collectFromSong(dynamic song, {int weight = 1}) {
+    if (song is! Map) return;
+    final artist = song['artist']?.toString().trim();
+    if (artist != null &&
+        artist.isNotEmpty &&
+        artist.toLowerCase() != 'unknown' &&
+        artist.toLowerCase() != 'various artists') {
+      final tokens = artist
+          .split(RegExp('[,&/]'))
+          .map((t) => t.trim())
+          .where((t) => t.length > 2);
+      for (final t in tokens) {
+        final key = t.toLowerCase();
+        counts[key] = (counts[key] ?? 0) + weight * 2;
+      }
+    }
+  }
+
+  final recents = userRecentlyPlayed.value;
+  for (var i = 0; i < recents.length && i < 20; i++) {
+    collectFromSong(recents[i], weight: 20 - i);
+  }
+
+  final liked = userLikedSongsList.value;
+  for (var i = 0; i < liked.length && i < 30; i++) {
+    collectFromSong(liked[i], weight: 10);
+  }
+
+  final sorted = counts.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  return sorted.take(5).map((e) => e.key).toList();
+}
+
+/// Generates suggested playlists according to the user's listening music taste.
+Future<List<Map>> getSuggestedPlaylists({int count = 10}) async {
+  if (playlists.isEmpty) return [];
+
+  final tasteKeywords = _extractUserTasteKeywords();
+  final matchedPlaylists = <Map>[];
+  final remainingPlaylists = <Map>[];
+  final seenYtIds = <String>{};
+
+  if (externalRecommendations.value && tasteKeywords.isNotEmpty) {
+    final topKeyword = tasteKeywords.first;
+    if (_discoveredPlaylistsCache.containsKey(topKeyword)) {
+      final cached = _discoveredPlaylistsCache[topKeyword]!;
+      for (final pl in cached) {
+        final id = _playlistId(pl['ytid']);
+        if (id != null && seenYtIds.add(id)) {
+          matchedPlaylists.add(pl);
+        }
+      }
+    } else {
+      try {
+        final results = await ytClient.search
+            .searchContent('$topKeyword playlist', filter: TypeFilters.playlist)
+            .timeout(const Duration(seconds: 4));
+        final discovered = results.whereType<SearchPlaylist>().take(3).map((p) {
+          return {
+            'ytid': p.id.toString(),
+            'title': p.title,
+            'image': p.thumbnails.isNotEmpty
+                ? p.thumbnails.first.url.toString()
+                : '',
+            'source': 'youtube',
+            'list': [],
+          };
+        }).toList();
+        _discoveredPlaylistsCache[topKeyword] = discovered;
+        for (final pl in discovered) {
+          final id = _playlistId(pl['ytid']);
+          if (id != null && seenYtIds.add(id)) {
+            matchedPlaylists.add(pl);
+          }
+        }
+      } catch (e) {
+        // Fallback silently if network search fails or times out
+      }
+    }
+  }
+
+  final shuffledCatalog = List<Map>.from(playlists)..shuffle();
+  for (final pl in shuffledCatalog) {
+    final id = _playlistId(pl['ytid']);
+    if (id == null || seenYtIds.contains(id)) continue;
+
+    final title = (pl['title'] ?? '').toString().toLowerCase();
+    var matchesTaste = false;
+    for (final kw in tasteKeywords) {
+      if (title.contains(kw)) {
+        matchesTaste = true;
+        break;
+      }
+    }
+
+    if (matchesTaste) {
+      seenYtIds.add(id);
+      matchedPlaylists.add(pl);
+    } else {
+      remainingPlaylists.add(pl);
+    }
+  }
+
+  final result = <Map>[...matchedPlaylists, ...remainingPlaylists];
+  return result.take(count).toList();
 }
 
 Future<List<Map<String, dynamic>>> searchArtists(

@@ -48,6 +48,9 @@ class _HomePageState extends State<HomePage> {
   void _refreshRecommendedSongs() {
     if (!mounted) return;
     setState(() {
+      _suggestedPlaylistsFuture = getPlaylists(
+        playlistsNum: recommendedCubesNumber,
+      );
       _recommendedSongsFuture = getRecommendedSongs();
     });
   }
