@@ -110,6 +110,8 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   String? _lastError;
   int _consecutiveErrors = 0;
   Map? _activeRadioStreamInfo;
+  bool _isReconnectingRadio = false;
+  bool _userPausedRadio = false;
 
   bool get isCurrentTrackLive =>
       (currentSong?['isLive'] == true) ||
@@ -982,20 +984,62 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   }
 
   Future<void> _reconnectRadioStream() async {
+    if (_isReconnectingRadio || _userPausedRadio) return;
     final radio = _activeRadioStreamInfo;
     if (radio == null) return;
+
+    _isReconnectingRadio = true;
     try {
-      await Future.delayed(const Duration(seconds: 1));
-      if (!isCurrentTrackLive) return;
-      await playRadioStream(
-        id: radio['id']?.toString() ?? radio['ytid']?.toString() ?? '',
-        name: radio['title']?.toString() ?? 'Radio',
-        streamUrl: radio['streamUrl']?.toString() ?? '',
-        image: radio['highResImage']?.toString() ?? radio['lowResImage']?.toString() ?? '',
-        genre: radio['artist']?.toString(),
-      );
+      const maxAttempts = 8;
+      final retryDelays = [
+        const Duration(milliseconds: 600),
+        const Duration(seconds: 1),
+        const Duration(seconds: 2),
+        const Duration(seconds: 2),
+        const Duration(seconds: 3),
+        const Duration(seconds: 4),
+        const Duration(seconds: 5),
+        const Duration(seconds: 5),
+      ];
+
+      for (var attempt = 0; attempt < maxAttempts; attempt++) {
+        if (!isCurrentTrackLive || _userPausedRadio) break;
+
+        await Future.delayed(retryDelays[attempt]);
+        if (!isCurrentTrackLive || _userPausedRadio) break;
+
+        logger.log(
+          'Reconnecting radio stream (attempt ${attempt + 1}/$maxAttempts)...',
+        );
+
+        final success = await playRadioStream(
+          id: radio['id']?.toString() ?? radio['ytid']?.toString() ?? '',
+          name: radio['title']?.toString() ?? 'Radio',
+          streamUrl: radio['streamUrl']?.toString() ?? '',
+          image: radio['highResImage']?.toString() ??
+              radio['lowResImage']?.toString() ??
+              '',
+          genre: radio['artist']?.toString(),
+          isReconnect: true,
+        );
+
+        if (success &&
+            audioPlayer.playing &&
+            audioPlayer.processingState != ProcessingState.completed) {
+          logger.log(
+            'Radio stream reconnected successfully on attempt ${attempt + 1}',
+          );
+          break;
+        }
+      }
     } catch (e, stackTrace) {
-      logger.log('Error reconnecting radio stream', error: e, stackTrace: stackTrace);
+      logger.log(
+        'Error reconnecting radio stream',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    } finally {
+      _isReconnectingRadio = false;
     }
   }
 
@@ -1848,6 +1892,12 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   @override
   Future<void> play() async {
     try {
+      _userPausedRadio = false;
+      if (isCurrentTrackLive &&
+          audioPlayer.processingState == ProcessingState.completed) {
+        unawaited(_reconnectRadioStream());
+        return;
+      }
       if (audioPlayer.audioSource == null) {
         final recentSong = latestResumableSong();
         if (recentSong != null) {
@@ -1884,6 +1934,9 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   @override
   Future<void> pause() async {
     try {
+      if (isCurrentTrackLive) {
+        _userPausedRadio = true;
+      }
       listeningStatsService.recordListeningSessionProgress(
         wasPlaying: audioPlayer.playing,
       );
@@ -2380,6 +2433,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
     required String streamUrl,
     required String image,
     String? genre,
+    bool isReconnect = false,
   }) async {
     try {
       // Create a song-like map for the radio stream
@@ -2398,26 +2452,31 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
       _lastError = null;
       _activeRadioStreamInfo = radioSong;
+      if (!isReconnect) {
+        _userPausedRadio = false;
+      }
       final wasPlayingBeforeSwap = audioPlayer.playing;
-      if (audioPlayer.playing) {
+      if (!isReconnect && audioPlayer.playing) {
         listeningStatsService.recordListeningSessionProgress(
           wasPlaying: audioPlayer.playing,
         );
         await audioPlayer.pause();
       }
 
-      // Synchronize internal queue list with the radio stream
-      _queueList
-        ..clear()
-        ..add(radioSong);
-      _currentQueueIndex = 0;
-      _currentLoadingIndex = -1;
-      _currentLoadingTransitionId = -1;
+      if (!isReconnect) {
+        // Synchronize internal queue list with the radio stream
+        _queueList
+          ..clear()
+          ..add(radioSong);
+        _currentQueueIndex = 0;
+        _currentLoadingIndex = -1;
+        _currentLoadingTransitionId = -1;
 
-      // Update media item and queue for mini player visibility
-      final mediaItem = mapToMediaItem(radioSong);
-      this.mediaItem.add(mediaItem);
-      queue.add([mediaItem]);
+        // Update media item and queue for mini player visibility
+        final mediaItem = mapToMediaItem(radioSong);
+        this.mediaItem.add(mediaItem);
+        queue.add([mediaItem]);
+      }
 
       // Ensure iOS audio session is active for background streaming
       if (Platform.isIOS || Platform.isMacOS) {
@@ -2445,10 +2504,12 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           .setAudioSource(audioSource)
           .timeout(_songTransitionTimeout);
 
-      listeningStatsService.finishListeningSession(
-        countCurrentTick: true,
-        wasPlaying: wasPlayingBeforeSwap,
-      );
+      if (!isReconnect) {
+        listeningStatsService.finishListeningSession(
+          countCurrentTick: true,
+          wasPlaying: wasPlayingBeforeSwap,
+        );
+      }
 
       await audioPlayer.play().catchError((Object e, StackTrace stackTrace) {
         logger.log(
