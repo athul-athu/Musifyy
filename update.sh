@@ -14,8 +14,8 @@ echo "const $variable = '$version';" > $filename
 cat <<EOF > update/check.json
 {
   "version": "$version",
-  "url": "https://github.com/athul-athu/Musifyy/releases/latest/download/Musify.apk",
-  "arm64url": "https://github.com/athul-athu/Musifyy/releases/latest/download/Musify-arm64-v8a.apk",
+  "url": "https://github.com/athul-athu/Musifyy/releases/latest/download/musify.apk",
+  "arm64url": "https://github.com/athul-athu/Musifyy/releases/latest/download/musify.apk",
   "ipaUrl": "https://github.com/athul-athu/Musifyy/releases/latest/download/Musify.ipa",
   "announcementurl": null
 }

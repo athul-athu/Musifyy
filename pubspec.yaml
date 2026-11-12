@@ -5,7 +5,7 @@ repository: https://github.com/athul-athu/Musifyy
 issue_tracker: https://github.com/athul-athu/Musifyy/issues
 
 publish_to: 'none'
-version: 10.5.3+184 # run update.sh after changing the version
+version: 1.0.0+1 # run update.sh after changing the version
 
 environment:
   sdk: '>=3.13.0 <4.0.0'
