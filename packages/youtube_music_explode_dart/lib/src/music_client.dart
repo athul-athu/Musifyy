@@ -513,7 +513,7 @@ class MusicClient {
       null,
       null,
       '',
-      _parseDuration(_fixedColumnText(item)),
+      _trackDuration(item),
       ThumbnailSet(videoId),
       null,
       const Engagement(0, null, null),
@@ -694,18 +694,50 @@ class MusicClient {
     return thumbnail.cast<String, dynamic>().getValue<String>('url');
   }
 
+  Duration? _trackDuration(_JsonMap item) {
+    // 1. Try fixed column (album tracklists have duration in fixedColumns).
+    final fixed = _fixedColumnText(item);
+    final fixedDuration = _parseDuration(fixed);
+    if (fixedDuration != null) return fixedDuration;
+
+    // 2. Try flex columns (search results and top songs have duration in flexColumns).
+    final columns = item.getList('flexColumns');
+    if (columns != null) {
+      for (final column in columns) {
+        if (column is! Map) continue;
+        final runs = column
+            .cast<String, dynamic>()
+            .getMap('musicResponsiveListItemFlexColumnRenderer')
+            ?.getMap('text')
+            ?.getList('runs');
+        if (runs != null) {
+          for (final run in runs) {
+            if (run is! Map) continue;
+            final text = run['text']?.toString().trim();
+            final duration = _parseDuration(text);
+            if (duration != null) return duration;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   Duration? _parseDuration(String? value) {
     if (value == null) return null;
-    final parts = value.trim().split(':');
-    if (parts.isEmpty || parts.length > 3) return null;
+    final trimmed = value.trim();
+    final parts = trimmed.split(':');
+    if (parts.length < 2 || parts.length > 3) return null;
 
     var seconds = 0;
-    for (final part in parts) {
-      final n = int.tryParse(part.trim());
-      if (n == null) return null;
+    for (var i = 0; i < parts.length; i++) {
+      final part = parts[i].trim();
+      final n = int.tryParse(part);
+      if (n == null || n < 0) return null;
+      if (i > 0 && (n >= 60 || part.length != 2)) return null;
       seconds = seconds * 60 + n;
     }
-    return Duration(seconds: seconds);
+    return seconds > 0 ? Duration(seconds: seconds) : null;
   }
 
   _JsonMap? _firstRenderer(dynamic node, String rendererKey) {

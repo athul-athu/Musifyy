@@ -10,12 +10,18 @@ import 'package:musify/services/artist_service.dart' show ytMusicClient;
 import 'package:musify/services/playlists_manager.dart';
 import 'package:musify/utilities/flutter_toast.dart';
 import 'package:musify/utilities/formatter.dart';
+import 'package:musify/utilities/media_duration.dart';
 import 'package:musify/utilities/url_launcher.dart';
 import 'package:musify/widgets/mini_player.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 /// A CSV row and its original position, used to preserve playlist order.
-typedef _ImportRow = ({int index, String title, String artist});
+typedef _ImportRow = ({
+  int index,
+  String title,
+  String artist,
+  int? durationSeconds,
+});
 
 class ImportSpotifyPlaylistPage extends StatefulWidget {
   const ImportSpotifyPlaylistPage({super.key});
@@ -96,9 +102,30 @@ class _ImportSpotifyPlaylistPageState extends State<ImportSpotifyPlaylistPage> {
     final artistIndex = headers.indexWhere(
       (header) => header.contains('artist') && isNameColumn(header),
     );
+    final durationIndex = headers.indexWhere(
+      (header) =>
+          header.contains('duration') ||
+          header == 'time' ||
+          header == 'length',
+    );
     if (songIndex == -1 || artistIndex == -1) {
       showToast(context, context.l10n!.spotifyPlaylistInvalid);
       return;
+    }
+
+    int? parseRowDuration(String? value) {
+      if (value == null) return null;
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) return null;
+      final numVal = double.tryParse(trimmed);
+      if (numVal != null && numVal.isFinite && numVal > 0) {
+        // Spotify CSV from Chosic/Exportify uses milliseconds for Duration (ms) e.g. 234000
+        if (numVal > 1000) {
+          return (numVal / 1000).round();
+        }
+        return numVal.round();
+      }
+      return readMediaDuration(trimmed)?.inSeconds;
     }
 
     final songs = records.skip(1).where((row) {
@@ -117,6 +144,9 @@ class _ImportSpotifyPlaylistPageState extends State<ImportSpotifyPlaylistPage> {
             index: entry.$1,
             title: entry.$2[songIndex].trim(),
             artist: entry.$2[artistIndex].trim(),
+            durationSeconds: durationIndex != -1 && entry.$2.length > durationIndex
+                ? parseRowDuration(entry.$2[durationIndex])
+                : null,
           ),
         )
         .toList();
@@ -215,6 +245,17 @@ class _ImportSpotifyPlaylistPageState extends State<ImportSpotifyPlaylistPage> {
             expectedArtist: row.artist,
             expectedTitle: row.title,
           );
+          if (match != null && row.durationSeconds != null) {
+            final ytDuration = match['duration'];
+            if (ytDuration == null || ytDuration == 0) {
+              match['duration'] = row.durationSeconds;
+            } else if (ytDuration is num &&
+                row.durationSeconds! > 0 &&
+                ytDuration > row.durationSeconds! * 1.5) {
+              // Prefer exact Spotify duration over doubled or bloated YouTube video duration.
+              match['duration'] = row.durationSeconds;
+            }
+          }
           return (row, match, wasRateLimited);
         }),
       );

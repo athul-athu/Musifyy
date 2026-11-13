@@ -11,6 +11,7 @@ import 'package:musify/services/audio_service_android_auto.dart';
 import 'package:musify/services/common_services.dart';
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/listening_stats_service.dart';
+import 'package:musify/services/proxy_manager.dart' show ytClient;
 import 'package:musify/services/settings_manager.dart';
 import 'package:musify/utilities/map_utils.dart';
 import 'package:musify/utilities/media_duration.dart';
@@ -89,6 +90,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   bool _completionEventPending = false;
   bool _completionHandlerLoadStarted = false;
   String? _lastError;
+  String? _lastDurationVerifiedYtid;
   int _consecutiveErrors = 0;
   Map? _activeRadioStreamInfo;
   bool _isReconnectingRadio = false;
@@ -440,6 +442,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   void _updateCurrentMediaItemWithDuration(
     Duration duration, {
     bool preserveLongerKnown = false,
+    bool isVerifiedDuration = false,
   }) {
     try {
       final queueIndex = _currentQueueIndex;
@@ -462,30 +465,41 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           : null;
       final storedDuration = readMediaDuration(currentSong['duration']);
       var stableDuration = storedDuration;
-      if (isMatchingCurrentItem) {
+      if (isVerifiedDuration) {
+        stableDuration = duration;
+      } else {
+        if (isMatchingCurrentItem) {
+          stableDuration = preferStableMediaDuration(
+            stableDuration,
+            currentItem?.duration,
+            preserveLongerKnown: true,
+          );
+        }
         stableDuration = preferStableMediaDuration(
           stableDuration,
-          currentItem?.duration,
+          queueItem?.duration,
           preserveLongerKnown: true,
         );
+        stableDuration = preferStableMediaDuration(
+          stableDuration,
+          duration,
+          preserveLongerKnown: preserveLongerKnown,
+        );
       }
-      stableDuration = preferStableMediaDuration(
-        stableDuration,
-        queueItem?.duration,
-        preserveLongerKnown: true,
-      );
-      stableDuration = preferStableMediaDuration(
-        stableDuration,
-        duration,
-        preserveLongerKnown: preserveLongerKnown,
-      );
       if (stableDuration == null) return;
 
       final durationSeconds = stableDuration.inSeconds;
       var queueMapChanged = false;
       if (!durationEquals(storedDuration, stableDuration)) {
-        currentSong['duration'] = durationSeconds;
-        queueMapChanged = true;
+        // On iOS/macOS, avoid mutating the stored duration from an unverified player duration
+        // when storedDuration was unknown, as native AVPlayer doubles AAC/VBR stream durations.
+        final shouldUpdateStored = isVerifiedDuration ||
+            !(Platform.isIOS || Platform.isMacOS) ||
+            storedDuration != null;
+        if (shouldUpdateStored) {
+          currentSong['duration'] = durationSeconds;
+          queueMapChanged = true;
+        }
       }
       final queueEntryId = _queueEntryIds.ensureId(currentSong);
       final originalSong = _originalQueueEntriesById[queueEntryId];
@@ -494,7 +508,12 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
             readMediaDuration(originalSong['duration']),
             stableDuration,
           )) {
-        originalSong['duration'] = durationSeconds;
+        final shouldUpdateOriginal = isVerifiedDuration ||
+            !(Platform.isIOS || Platform.isMacOS) ||
+            readMediaDuration(originalSong['duration']) != null;
+        if (shouldUpdateOriginal) {
+          originalSong['duration'] = durationSeconds;
+        }
       }
 
       var mediaItemChanged = false;
@@ -532,6 +551,38 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
         }
         queue.add(rebuiltQueue);
         publishedQueueChanged = true;
+      }
+
+      // If duration is unverified on iOS/macOS, or stored duration might be corrupted
+      // by the native AVPlayer doubling bug, verify against YouTube metadata.
+      if (!isVerifiedDuration &&
+          currentSongYtid != null &&
+          currentSongYtid.isNotEmpty &&
+          _lastDurationVerifiedYtid != currentSongYtid &&
+          currentSong['audioPath'] == null) {
+        final needsVerification = storedDuration == null ||
+            ((Platform.isIOS || Platform.isMacOS) &&
+                durationSeconds > 0 &&
+                storedDuration.inSeconds > 0);
+        if (needsVerification) {
+          _lastDurationVerifiedYtid = currentSongYtid;
+          unawaited(
+            ytClient.videos.get(currentSongYtid).then((video) {
+              final durSeconds = video.duration?.inSeconds;
+              if (durSeconds != null && durSeconds > 0) {
+                final cur = readMediaDuration(currentSong['duration']);
+                if (cur == null ||
+                    ((Platform.isIOS || Platform.isMacOS) &&
+                        cur.inSeconds > (durSeconds * 1.5).round())) {
+                  _updateCurrentMediaItemWithDuration(
+                    Duration(seconds: durSeconds),
+                    isVerifiedDuration: true,
+                  );
+                }
+              }
+            }).catchError((_) {}),
+          );
+        }
       }
 
       if (queueMapChanged) {
