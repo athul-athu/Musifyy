@@ -109,6 +109,12 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Musify needs access to your local network to discover and sync music with your other devices.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_musify-sync._tcp</string>
+	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Musify needs access to your photo library to set custom playlist artwork.</string>
 	<key>NSDocumentsFolderUsageDescription</key>

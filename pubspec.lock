@@ -170,13 +170,21 @@ packages:
     source: hosted
     version: "0.3.5+5"
   crypto:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: crypto
       sha256: e3626ae6270383c9e3a549f34c9e4cd26c09ae6a9adaab2bf4737a00340efdc4
       url: "https://pub.dev"
     source: hosted
     version: "3.0.8"
+  cryptography:
+    dependency: "direct main"
+    description:
+      name: cryptography
+      sha256: "3eda3029d34ec9095a27a198ac9785630fe525c0eb6a49f3d575272f8e792ef0"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.9.0"
   csslib:
     dependency: transitive
     description:
@@ -194,13 +202,21 @@ packages:
     source: hosted
     version: "1.1.6"
   dbus:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: dbus
       sha256: f7db8504e715b835f5ebe5fe74604ccd961d504c73389a5d8e81bafc2e2f3612
       url: "https://pub.dev"
     source: hosted
     version: "0.8.0"
+  dsrp:
+    dependency: "direct main"
+    description:
+      name: dsrp
+      sha256: e863b162aa9eacb11b99a6fbad538c63b593d236d668ac1d6629fd2ceb8d60fa
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.5.5"
   dynamic_color:
     dependency: "direct main"
     description:
@@ -315,6 +331,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_multicast_lock:
+    dependency: "direct main"
+    description:
+      name: flutter_multicast_lock
+      sha256: "148ff4a5e3f3231fc0fdb049fa2c4769e9222d4774c1404633907803375a59b3"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.2.1"
   flutter_test:
     dependency: "direct dev"
     description: flutter

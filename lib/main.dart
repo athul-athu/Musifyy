@@ -10,10 +10,12 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/localization/app_localizations.dart';
+import 'package:musify/screens/local_sync_page.dart';
 import 'package:musify/services/audio_service.dart';
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/io_service.dart';
 import 'package:musify/services/listening_stats_service.dart';
+import 'package:musify/services/local_sync_service.dart';
 import 'package:musify/services/logger_service.dart';
 import 'package:musify/services/playlist_sharing.dart';
 import 'package:musify/services/playlists_manager.dart';
@@ -110,6 +112,9 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
     };
 
     offlineMode.addListener(_onOfflineModeChanged);
+    LocalSyncService.instance.incomingPairingRequest.addListener(
+      showIncomingPairingDialog,
+    );
 
     sharingIntentSubscription = ReceiveSharingIntent.getTextStream().listen(
       (String? value) async {
@@ -174,6 +179,9 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(LocalSyncService.instance.syncOnResume());
+    }
     super.didChangeAppLifecycleState(state);
     // Persist listening stats when the app leaves the foreground. This is the
     // reliable moment to snapshot and flush: unlike widget dispose, these
@@ -195,6 +203,10 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
     offlineMode.removeListener(_onOfflineModeChanged);
     PlatformDispatcher.instance.onPlatformBrightnessChanged = null;
 
+    LocalSyncService.instance.incomingPairingRequest.removeListener(
+      showIncomingPairingDialog,
+    );
+    unawaited(LocalSyncService.instance.dispose());
     Hive.close();
     unawaited(sharingIntentSubscription?.cancel());
     unawaited(appLinksSubscription?.cancel());
@@ -265,6 +277,16 @@ Future<void> initialisation() async {
       Hive.openBox('userNoBackup'),
       Hive.openBox('cache'),
     ]);
+
+    try {
+      await LocalSyncService.instance.initialise();
+    } catch (e, stackTrace) {
+      logger.log(
+        'Local sync could not start',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
 
     audioHandler = await AudioService.init(
       builder: MusifyAudioHandler.new,
