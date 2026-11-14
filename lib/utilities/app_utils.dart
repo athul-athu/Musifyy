@@ -1,9 +1,8 @@
-import 'dart:io';
-
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/services/settings_manager.dart';
+import 'package:musify/utilities/platform_utils.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 BorderRadius getItemBorderRadius(
@@ -104,7 +103,6 @@ AudioOnlyStreamInfo? selectAudioOnlyStreamForQuality(
   if (availableSources.isEmpty) return null;
 
   final compatibleSources = _filterCompatibleAudioOnlySources(availableSources);
-  final isApplePlatform = Platform.isIOS || Platform.isMacOS;
 
   final List<AudioOnlyStreamInfo> selectionPool;
   if (compatibleSources.isNotEmpty) {
@@ -155,7 +153,7 @@ int _audioOnlyCompatibilityScore(AudioOnlyStreamInfo stream) {
 
   // Apple's AVPlayer (iOS / macOS) only natively supports AAC (mp4a), MP3, ALAC.
   // WebM container and Opus/Vorbis codecs are NOT supported by native AVPlayer.
-  if (Platform.isIOS || Platform.isMacOS) {
+  if (isApplePlatform) {
     if ((codec.contains('mp4a') || codec.contains('aac')) &&
         (container == 'mp4' || container == 'm4a')) {
       return 3;

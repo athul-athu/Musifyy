@@ -11,6 +11,7 @@ import 'package:musify/main.dart';
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/router_service.dart';
 import 'package:musify/services/settings_manager.dart';
+import 'package:musify/utilities/platform_utils.dart';
 import 'package:musify/utilities/url_launcher.dart';
 import 'package:musify/widgets/auto_format_text.dart';
 
@@ -23,7 +24,7 @@ const String downloadUrlArm64Key = 'arm64url';
 const String downloadFilename = 'Musify.apk';
 
 Future<void> checkAppUpdates() async {
-  if (!Platform.isAndroid && !Platform.isIOS) return;
+  if (!isAndroidPlatform && !isIosPlatform) return;
   try {
     final response = await http.get(Uri.parse(checkUrl));
 
@@ -252,7 +253,7 @@ Future<String> getDownloadUrl(
   Map<String, dynamic> map, {
   List<dynamic>? releaseAssets,
 }) async {
-  if (Platform.isIOS) {
+  if (isIosPlatform) {
     if (releaseAssets != null && releaseAssets.isNotEmpty) {
       final ipaAsset = releaseAssets.firstWhere(
         (a) => a['name']?.toString().toLowerCase().endsWith('.ipa') ?? false,

@@ -17,6 +17,7 @@ import 'package:musify/services/settings_manager.dart';
 import 'package:musify/utilities/app_utils.dart';
 import 'package:musify/utilities/formatter.dart';
 import 'package:musify/utilities/map_utils.dart';
+import 'package:musify/utilities/platform_utils.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 List globalSongs = [];
@@ -642,7 +643,7 @@ AudioOnlyStreamInfo? _getSelectedAudioStream(String songId) {
     return null;
   }
 
-  if ((Platform.isIOS || Platform.isMacOS) &&
+  if (isApplePlatform &&
       entry.stream.container.name.toLowerCase() == 'webm') {
     _selectedAudioStreams.remove(key);
     return null;
@@ -729,7 +730,7 @@ Future<String?> fetchSongStreamUrl(String songId, bool isLive) async {
     // Try to get from cache
     final cachedUrl = await _getCachedSongUrl(cacheKey, _cacheDuration);
     if (cachedUrl != null) {
-      if ((Platform.isIOS || Platform.isMacOS) &&
+      if (isApplePlatform &&
           (cachedUrl.contains('audio%2Fwebm') || cachedUrl.contains('webm'))) {
         // Discard cached WebM stream URL on iOS/macOS as native AVPlayer cannot decode it.
       } else {

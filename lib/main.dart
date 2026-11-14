@@ -25,6 +25,7 @@ import 'package:musify/services/update_manager.dart';
 import 'package:musify/theme/app_themes.dart';
 import 'package:musify/utilities/flutter_toast.dart';
 import 'package:musify/utilities/language_utils.dart';
+import 'package:musify/utilities/platform_utils.dart';
 import 'package:musify/utilities/playlist_utils.dart';
 import 'package:musify/utilities/sharing_intent.dart';
 import 'package:path_provider/path_provider.dart';
@@ -116,24 +117,26 @@ class _MusifyState extends State<Musify> with WidgetsBindingObserver {
       showIncomingPairingDialog,
     );
 
-    sharingIntentSubscription = ReceiveSharingIntent.getTextStream().listen(
-      (String? value) async {
-        await consumeYoutubeSharedTextIntent(
-          value,
-          audioHandler: audioHandler,
-          onError: (error, stackTrace) {
-            logger.log(
-              'Error while playing shared song:',
-              error: error,
-              stackTrace: stackTrace,
-            );
-          },
-        );
-      },
-      onError: (err) {
-        logger.log('getTextStream error:', error: err);
-      },
-    );
+    if (isMobilePlatform) {
+      sharingIntentSubscription = ReceiveSharingIntent.getTextStream().listen(
+        (String? value) async {
+          await consumeYoutubeSharedTextIntent(
+            value,
+            audioHandler: audioHandler,
+            onError: (error, stackTrace) {
+              logger.log(
+                'Error while playing shared song:',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            },
+          );
+        },
+        onError: (err) {
+          logger.log('getTextStream error:', error: err);
+        },
+      );
+    }
 
     try {
       LicenseRegistry.addLicense(() async* {
@@ -313,16 +316,18 @@ Future<void> initialisation() async {
     // Init router
     NavigationManager.instance;
 
-    try {
-      // Listen to incoming links while app is running
-      appLinksSubscription = appLinks.uriLinkStream.listen(
-        handleIncomingLink,
-        onError: (err) {
-          logger.log('URI link error:', error: err);
-        },
-      );
-    } on PlatformException {
-      logger.log('Failed to get initial uri');
+    if (!kIsWeb) {
+      try {
+        // Listen to incoming links while app is running
+        appLinksSubscription = appLinks.uriLinkStream.listen(
+          handleIncomingLink,
+          onError: (err) {
+            logger.log('URI link error:', error: err);
+          },
+        );
+      } on PlatformException {
+        logger.log('Failed to get initial uri');
+      }
     }
 
     if (isFdroidBuild && !offlineMode.value) {
@@ -332,8 +337,12 @@ Future<void> initialisation() async {
     logger.log('Initialization Error', error: e, stackTrace: stackTrace);
   }
 
-  applicationDirPath = (await getApplicationDocumentsDirectory()).path;
-  await FilePaths.ensureDirectoriesExist();
+  if (!kIsWeb) {
+    applicationDirPath = (await getApplicationDocumentsDirectory()).path;
+    await FilePaths.ensureDirectoriesExist();
+  } else {
+    applicationDirPath = '';
+  }
 }
 
 void handleIncomingLink(Uri? uri) async {

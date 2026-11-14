@@ -17,12 +17,13 @@ import 'package:musify/services/settings_manager.dart';
 import 'package:musify/utilities/map_utils.dart';
 import 'package:musify/utilities/media_duration.dart';
 import 'package:musify/utilities/mediaitem.dart';
+import 'package:musify/utilities/platform_utils.dart';
 import 'package:musify/utilities/queue_entry_utils.dart';
 import 'package:rxdart/rxdart.dart';
 
 class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   MusifyAudioHandler() {
-    if (Platform.isAndroid) {
+    if (isAndroidPlatform) {
       _androidEqualizer = AndroidEqualizer();
       audioPlayer = AudioPlayer(
         audioPipeline: AudioPipeline(androidAudioEffects: [_androidEqualizer!]),
@@ -495,7 +496,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
         // On iOS/macOS, avoid mutating the stored duration from an unverified player duration
         // when storedDuration was unknown, as native AVPlayer doubles AAC/VBR stream durations.
         final shouldUpdateStored = isVerifiedDuration ||
-            !(Platform.isIOS || Platform.isMacOS) ||
+            !isApplePlatform ||
             storedDuration != null;
         if (shouldUpdateStored) {
           currentSong['duration'] = durationSeconds;
@@ -510,7 +511,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
             stableDuration,
           )) {
         final shouldUpdateOriginal = isVerifiedDuration ||
-            !(Platform.isIOS || Platform.isMacOS) ||
+            !isApplePlatform ||
             readMediaDuration(originalSong['duration']) != null;
         if (shouldUpdateOriginal) {
           originalSong['duration'] = durationSeconds;
@@ -562,7 +563,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           _lastDurationVerifiedYtid != currentSongYtid &&
           currentSong['audioPath'] == null) {
         final needsVerification = storedDuration == null ||
-            ((Platform.isIOS || Platform.isMacOS) &&
+            (isApplePlatform &&
                 durationSeconds > 0 &&
                 storedDuration.inSeconds > 0);
         if (needsVerification) {
@@ -573,7 +574,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
               if (durSeconds != null && durSeconds > 0) {
                 final cur = readMediaDuration(currentSong['duration']);
                 if (cur == null ||
-                    ((Platform.isIOS || Platform.isMacOS) &&
+                    (isApplePlatform &&
                         cur.inSeconds > (durSeconds * 1.5).round())) {
                   _updateCurrentMediaItemWithDuration(
                     Duration(seconds: durSeconds),
@@ -650,7 +651,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
         audioPlayer.pause();
       });
 
-      if (Platform.isIOS || Platform.isMacOS) {
+      if (isApplePlatform) {
         await session.setActive(true);
       }
 
@@ -673,7 +674,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   }
 
   Future<bool> _ensureEqualizerConfigured({bool force = false}) async {
-    if (!Platform.isAndroid || _androidEqualizer == null) return false;
+    if (!isAndroidPlatform || _androidEqualizer == null) return false;
     if (_equalizerInitialized) return true;
 
     final now = DateTime.now();
@@ -700,7 +701,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   Future<bool> _configureEqualizer() async {
     final equalizer = _androidEqualizer;
-    if (!Platform.isAndroid || equalizer == null) return false;
+    if (!isAndroidPlatform || equalizer == null) return false;
     try {
       final params = await equalizer.parameters.timeout(
         const Duration(seconds: 3),
@@ -736,7 +737,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   Future<AndroidEqualizerParameters?> getEqualizerParameters() async {
     final equalizer = _androidEqualizer;
-    if (!Platform.isAndroid || equalizer == null) return null;
+    if (!isAndroidPlatform || equalizer == null) return null;
     final initialized = await _ensureEqualizerConfigured();
     if (!initialized) return null;
     try {
@@ -755,7 +756,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   Future<void> setEqualizerEnabled(bool enabled) async {
     final equalizer = _androidEqualizer;
-    if (!Platform.isAndroid || equalizer == null) return;
+    if (!isAndroidPlatform || equalizer == null) return;
     final initialized = await _ensureEqualizerConfigured(force: true);
     if (!initialized) return;
     try {
@@ -773,7 +774,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   Future<void> setEqualizerBandGain(int index, double gain) async {
     final equalizer = _androidEqualizer;
-    if (!Platform.isAndroid || equalizer == null) return;
+    if (!isAndroidPlatform || equalizer == null) return;
     final initialized = await _ensureEqualizerConfigured(force: true);
     if (!initialized) return;
 
@@ -802,7 +803,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   Future<void> resetEqualizerBands() async {
     final equalizer = _androidEqualizer;
-    if (!Platform.isAndroid || equalizer == null) return;
+    if (!isAndroidPlatform || equalizer == null) return;
     final initialized = await _ensureEqualizerConfigured(force: true);
     if (!initialized) return;
 
@@ -1961,7 +1962,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       // Do NOT await play(): its future only completes when playback pauses/
       // stops/finishes (just_audio semantics), which would defer the resume
       // below until the song ended - losing the whole session.
-      if (Platform.isIOS || Platform.isMacOS) {
+      if (isApplePlatform) {
         try {
           final session = await AudioSession.instance;
           await session.setActive(true);
@@ -2362,7 +2363,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           song,
           duration: _getEffectiveDuration(audioPlayer.duration),
         );
-      if (Platform.isIOS || Platform.isMacOS) {
+      if (isApplePlatform) {
         try {
           final session = await AudioSession.instance;
           await session.setActive(true);
@@ -2556,7 +2557,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       }
 
       // Ensure iOS audio session is active for background streaming
-      if (Platform.isIOS || Platform.isMacOS) {
+      if (isApplePlatform) {
         try {
           final session = await AudioSession.instance;
           await session.setActive(true);

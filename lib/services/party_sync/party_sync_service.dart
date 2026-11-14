@@ -76,6 +76,7 @@ class PartySyncService {
   int get lastMeasuredDriftMs => _driftController?.lastMeasuredDriftMs ?? 0;
 
   String get deviceName {
+    if (kIsWeb) return 'Musify (Web)';
     if (isAndroidPlatform) return 'Musify (Android)';
     if (isIosPlatform) return 'Musify (iOS)';
     return 'Musify (${Platform.localHostname})';

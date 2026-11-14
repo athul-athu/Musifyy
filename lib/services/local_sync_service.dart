@@ -259,6 +259,7 @@ class LocalSyncService {
   int? get serverPort => _httpServer?.port;
 
   String get deviceName {
+    if (kIsWeb) return 'Musify (Web)';
     if (isAndroidPlatform) return 'Musify (Android)';
     if (isIosPlatform) return 'Musify (iOS)';
     return 'Musify (${Platform.localHostname})';

@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:audio_service/audio_service.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:go_router/go_router.dart';
@@ -23,6 +21,7 @@ import 'package:musify/theme/app_themes.dart';
 import 'package:musify/utilities/flutter_bottom_sheet.dart';
 import 'package:musify/utilities/flutter_toast.dart';
 import 'package:musify/utilities/language_utils.dart';
+import 'package:musify/utilities/platform_utils.dart';
 import 'package:musify/widgets/bottom_sheet_bar.dart';
 import 'package:musify/widgets/confirmation_dialog.dart';
 import 'package:musify/widgets/custom_bar.dart';
@@ -103,7 +102,7 @@ class SettingsPage extends StatelessWidget {
           FluentIcons.music_note_1_24_regular,
           onTap: () => _showAudioQualityPicker(context),
         ),
-        if (Platform.isAndroid)
+        if (isAndroidPlatform)
           CustomBar(
             context.l10n!.equalizer,
             FluentIcons.data_histogram_24_regular,
@@ -119,7 +118,7 @@ class SettingsPage extends StatelessWidget {
               onChanged: (value) => _togglePureBlack(context, value),
             ),
           ),
-        if (Platform.isAndroid)
+        if (isAndroidPlatform)
           CustomBar(
             context.l10n!.dynamicColor,
             FluentIcons.toggle_left_24_regular,
