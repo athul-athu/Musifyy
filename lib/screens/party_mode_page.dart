@@ -2,9 +2,11 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
+import 'package:musify/main.dart';
 import 'package:musify/services/party_sync/party_protocol.dart';
 import 'package:musify/services/party_sync/party_sync_service.dart';
 import 'package:musify/utilities/app_utils.dart';
+import 'package:musify/utilities/platform_utils.dart';
 import 'package:musify/widgets/custom_bar.dart';
 import 'package:musify/widgets/mini_player_bottom_space.dart';
 import 'package:musify/widgets/section_header.dart';
@@ -95,102 +97,62 @@ class _PartyModePageState extends State<PartyModePage> {
   }
 
   // ===========================================================================
-  // IDLE VIEW (Host or Join)
+  // IDLE VIEW (Host or Discover Rooms)
   // ===========================================================================
 
   Widget _buildIdleView(BuildContext context) {
     final l10n = context.l10n!;
-    final theme = Theme.of(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Card(
-          elevation: 0,
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                Icon(
-                  FluentIcons.speaker_2_24_filled,
-                  size: 48,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  l10n.partyModeTitle,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  l10n.partyModeDescription,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 20),
-                FilledButton.icon(
-                  icon: const Icon(FluentIcons.play_24_filled),
-                  label: Text(l10n.partyHostButton),
-                  onPressed: () async {
-                    final success = await _service.startHosting();
-                    if (!mounted) return;
-                    if (!success) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Could not start Party Host.'),
-                        ),
-                      );
-                    }
-                  },
-                ),
-              ],
-            ),
+        SectionHeader(
+          title: l10n.partyHostButton,
+          icon: FluentIcons.speaker_2_24_filled,
+        ),
+        CustomBar(
+          _service.deviceName,
+          isMobilePlatform
+              ? FluentIcons.phone_24_regular
+              : FluentIcons.desktop_24_regular,
+          description: l10n.partyModeDescription,
+          borderRadius: commonCustomBarRadius,
+          trailing: FilledButton.tonal(
+            child: Text(l10n.partyHostButton),
+            onPressed: () async {
+              final success = await _service.startHosting();
+              if (!mounted) return;
+              if (!success) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Could not start Party Host.')),
+                );
+              }
+            },
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 20),
         SectionHeader(
           title: l10n.partyJoinButton,
           icon: FluentIcons.wifi_1_24_filled,
+          actionButton: IconButton(
+            icon: const Icon(FluentIcons.arrow_clockwise_24_regular),
+            tooltip: 'Scan Again',
+            onPressed: _service.startDiscovery,
+          ),
         ),
         ValueListenableBuilder<List<PartyRoomInfo>>(
           valueListenable: _service.discoveredRooms,
           builder: (context, rooms, _) {
             if (rooms.isEmpty) {
-              return Card(
-                elevation: 0,
-                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 24,
-                    horizontal: 16,
-                  ),
-                  child: Column(
-                    children: [
-                      const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        l10n.partyScanningRooms,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
+              return CustomBar(
+                'Searching for party rooms...',
+                FluentIcons.wifi_1_24_regular,
+                description: l10n.partyScanningRooms,
+                borderRadius: commonCustomBarRadius,
+                trailing: const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               );
             }
@@ -206,8 +168,8 @@ class _PartyModePageState extends State<PartyModePage> {
                         '${rooms[i].currentSongTitle != null ? ' • Playing: ${rooms[i].currentSongTitle}' : ''}',
                     borderRadius: getItemBorderRadius(i, rooms.length),
                     trailing: FilledButton.tonal(
-                      child: Text(l10n.partyJoinButton),
                       onPressed: () => _service.joinRoom(rooms[i]),
+                      child: Text(l10n.partyJoinButton),
                     ),
                   ),
               ],
@@ -215,12 +177,16 @@ class _PartyModePageState extends State<PartyModePage> {
           },
         ),
         const SizedBox(height: 12),
-        Center(
-          child: TextButton.icon(
-            icon: const Icon(FluentIcons.link_24_regular),
-            label: Text(l10n.partyManualJoin),
-            onPressed: () => _showManualJoinDialog(context),
-          ),
+        const SectionHeader(
+          title: 'Direct Connect',
+          icon: FluentIcons.link_24_filled,
+        ),
+        CustomBar(
+          l10n.partyManualJoin,
+          FluentIcons.link_24_regular,
+          description: 'Connect directly using Host IP and Port',
+          borderRadius: commonCustomBarRadius,
+          onTap: () => _showManualJoinDialog(context),
         ),
         const SizedBox(height: 20),
         const MiniPlayerBottomSpace(),
@@ -240,56 +206,37 @@ class _PartyModePageState extends State<PartyModePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Card(
-          elevation: 0,
-          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            room?.name ?? 'Musify Party',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            l10n.partyRoomCode(room?.id ?? '----'),
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.primary,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            'IP: ${room?.ip}:${room?.port}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      icon: const Icon(FluentIcons.dismiss_24_regular, size: 16),
-                      label: Text(l10n.partyEndButton),
-                      onPressed: _service.leaveParty,
-                    ),
-                  ],
-                ),
-              ],
-            ),
+        const SectionHeader(
+          title: 'Active Room',
+          icon: FluentIcons.speaker_2_24_filled,
+        ),
+        CustomBar(
+          room?.name ?? 'Musify Party',
+          FluentIcons.speaker_2_24_filled,
+          iconColor: theme.colorScheme.primary,
+          description:
+              '${l10n.partyRoomCode(room?.id ?? '----')} • IP: ${room?.ip}:${room?.port}',
+          borderRadius: commonCustomBarRadiusFirst,
+          trailing: FilledButton.tonal(
+            onPressed: _service.leaveParty,
+            child: Text(l10n.partyEndButton),
           ),
         ),
-        const SizedBox(height: 24),
+        StreamBuilder(
+          stream: audioHandler.mediaItem,
+          builder: (context, snapshot) {
+            final title = snapshot.data?.title ?? 'No music playing';
+            final artist = snapshot.data?.artist ??
+                'Play any song to sync across all speakers';
+            return CustomBar(
+              title,
+              FluentIcons.music_note_2_24_regular,
+              description: artist,
+              borderRadius: commonCustomBarRadiusLast,
+            );
+          },
+        ),
+        const SizedBox(height: 20),
         ValueListenableBuilder<List<ConnectedSpeaker>>(
           valueListenable: _service.connectedSpeakers,
           builder: (context, speakers, _) {
@@ -298,26 +245,14 @@ class _PartyModePageState extends State<PartyModePage> {
               children: [
                 SectionHeader(
                   title: l10n.partySpeakersConnected(speakers.length),
-                  icon: FluentIcons.speaker_2_24_filled,
+                  icon: FluentIcons.phone_24_filled,
                 ),
                 if (speakers.isEmpty)
-                  Card(
-                    elevation: 0,
-                    color: theme.colorScheme.surfaceContainerHighest
-                        .withValues(alpha: 0.3),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(
-                        l10n.partyNoSpeakersYet,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
+                  CustomBar(
+                    'Waiting for speakers...',
+                    FluentIcons.phone_24_regular,
+                    description: l10n.partyNoSpeakersYet,
+                    borderRadius: commonCustomBarRadius,
                   )
                 else
                   for (var i = 0; i < speakers.length; i++)
@@ -325,7 +260,7 @@ class _PartyModePageState extends State<PartyModePage> {
                       speakers[i].name,
                       FluentIcons.phone_24_regular,
                       description:
-                          '${speakers[i].ip} • Latency: ${speakers[i].rttMs}ms • Drift: ${speakers[i].driftMs}ms',
+                          '${speakers[i].ip} • Ping: ${speakers[i].rttMs}ms • Drift: ${speakers[i].driftMs}ms',
                       borderRadius: getItemBorderRadius(i, speakers.length),
                       trailing: Chip(
                         label: Text(
@@ -360,95 +295,86 @@ class _PartyModePageState extends State<PartyModePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Card(
-          elevation: 0,
-          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.4),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: [
-                Icon(
-                  FluentIcons.speaker_2_24_filled,
-                  size: 44,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  l10n.partyConnectedTo(room?.name ?? 'Host'),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Host: ${room?.ip}:${room?.port} • RTT: ${_service.clock.rttMs}ms',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                FilledButton.tonalIcon(
-                  icon: const Icon(FluentIcons.dismiss_24_regular, size: 16),
-                  label: Text(l10n.partyLeaveButton),
-                  onPressed: _service.leaveParty,
-                ),
-              ],
-            ),
+        const SectionHeader(
+          title: 'Connected Room',
+          icon: FluentIcons.speaker_2_24_filled,
+        ),
+        CustomBar(
+          l10n.partyConnectedTo(room?.name ?? 'Host'),
+          FluentIcons.speaker_2_24_filled,
+          iconColor: theme.colorScheme.primary,
+          description:
+              'Host: ${room?.ip}:${room?.port} • Ping: ${_service.clock.rttMs}ms',
+          borderRadius: commonCustomBarRadiusFirst,
+          trailing: FilledButton.tonal(
+            onPressed: _service.leaveParty,
+            child: Text(l10n.partyLeaveButton),
           ),
         ),
-        const SizedBox(height: 24),
+        StreamBuilder(
+          stream: audioHandler.mediaItem,
+          builder: (context, snapshot) {
+            final title = snapshot.data?.title ?? 'Synchronized Audio';
+            final artist = snapshot.data?.artist ??
+                'Playing automatically in lockstep with Host';
+            return CustomBar(
+              title,
+              FluentIcons.music_note_2_24_regular,
+              description: artist,
+              borderRadius: commonCustomBarRadiusLast,
+            );
+          },
+        ),
+        const SizedBox(height: 20),
         SectionHeader(
           title: l10n.partyFineTuneSync,
           icon: FluentIcons.options_24_filled,
         ),
-        Card(
-          elevation: 0,
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Calibration Offset',
-                      style: theme.textTheme.titleSmall,
-                    ),
-                    Text(
-                      '${_sliderOffset.toInt()} ms',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                Slider(
-                  value: _sliderOffset,
-                  min: -50,
-                  max: 50,
-                  divisions: 20,
-                  label: '${_sliderOffset.toInt()} ms',
-                  onChanged: (val) {
-                    setState(() {
-                      _sliderOffset = val;
-                      _service.calibrationOffsetMs = val.toInt();
-                    });
-                  },
-                ),
-                Text(
-                  l10n.partyFineTuneHint,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+        Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+            borderRadius: commonCustomBarRadius,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Calibration Offset',
+                    style: theme.textTheme.titleSmall,
                   ),
+                  Text(
+                    '${_sliderOffset.toInt()} ms',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
+              Slider(
+                value: _sliderOffset,
+                min: -50,
+                max: 50,
+                divisions: 20,
+                label: '${_sliderOffset.toInt()} ms',
+                onChanged: (val) {
+                  setState(() {
+                    _sliderOffset = val;
+                    _service.calibrationOffsetMs = val.toInt();
+                  });
+                },
+              ),
+              Text(
+                l10n.partyFineTuneHint,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 20),
@@ -462,7 +388,7 @@ class _PartyModePageState extends State<PartyModePage> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Join Party Room'),
+          title: const Text('Direct Connect'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -507,4 +433,3 @@ class _PartyModePageState extends State<PartyModePage> {
     );
   }
 }
-

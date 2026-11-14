@@ -290,8 +290,9 @@ class PartySyncService {
 
           case PartyMessageType.ready:
             if (speaker != null) {
-              speaker!.isReady = true;
-              speaker!.status = 'ready';
+              speaker!
+                ..isReady = true
+                ..status = 'ready';
               _updateConnectedSpeakersList();
 
               if (_hostPrepareTimeoutTimer?.isActive == true) {
@@ -300,6 +301,22 @@ class PartySyncService {
                   _hostPrepareTimeoutTimer?.cancel();
                   _triggerSynchronizedStart(positionMs: 0);
                 }
+              } else if (_isHostPlaying) {
+                // Speaker joined while Host is ALREADY playing:
+                // Automatically send synchronized play command to this newly ready speaker!
+                final currentPos = _currentPositionMs;
+                const leadTimeMs = 350;
+                final targetHostTimeMs = clock.localNowMs + leadTimeMs;
+                final playMsg = PartyMessage(
+                  type: PartyMessageType.play,
+                  payload: {
+                    'positionMs': currentPos + leadTimeMs,
+                    'targetHostTimeMs': targetHostTimeMs,
+                  },
+                );
+                try {
+                  socket.add(playMsg.serialize());
+                } catch (_) {}
               }
             }
             break;
@@ -739,6 +756,17 @@ class PartySyncService {
         await audioHandler.playSong(song);
         await audioHandler.audioPlayer.pause();
       }
+
+      // Pre-buffer: wait until audio player has primed its decoder buffer
+      try {
+        await audioHandler.audioPlayer.playerStateStream
+            .firstWhere(
+              (s) =>
+                  s.processingState == ProcessingState.ready ||
+                  s.processingState == ProcessingState.buffering,
+            )
+            .timeout(const Duration(milliseconds: 1500));
+      } catch (_) {}
 
       // Notify Host that this speaker is pre-buffered and ready
       final readyMsg = PartyMessage(
