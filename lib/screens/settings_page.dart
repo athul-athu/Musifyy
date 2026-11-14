@@ -52,6 +52,13 @@ class SettingsPage extends StatelessWidget {
             ),
             if (!offlineMode.value) _buildOnlineFeaturesSection(context),
             const LocalSyncSettingsSection(),
+            CustomBar(
+              context.l10n!.partyModeTitle,
+              FluentIcons.speaker_2_24_regular,
+              description: context.l10n!.partyModeDescription,
+              borderRadius: commonCustomBarRadius,
+              onTap: () => context.push('/settings/party-mode'),
+            ),
             _buildOthersSection(context),
             const SizedBox(height: 20),
             const MiniPlayerBottomSpace(),

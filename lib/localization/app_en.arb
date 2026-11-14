@@ -452,5 +452,41 @@
   "useProxyDescription": "Use the proxy only when streaming fails, unnecessary use may break playback.",
   "userPlaylists": "User playlists",
   "yes": "Yes",
-  "youtubePlaylistLinkOrId": "YouTube playlist link or ID"
+  "youtubePlaylistLinkOrId": "YouTube playlist link or ID",
+  "partyModeTitle": "Party Mode (Group Speaker)",
+  "partyModeDescription": "Sync audio playback across multiple phones as a group speaker",
+  "partyHostButton": "Host a Party",
+  "partyJoinButton": "Join a Party",
+  "partyEndButton": "End Party",
+  "partyLeaveButton": "Leave Party",
+  "partyConnectedTo": "Connected to {roomName}",
+  "@partyConnectedTo": {
+    "placeholders": {
+      "roomName": {
+        "type": "String"
+      }
+    }
+  },
+  "partySpeakersConnected": "Connected Speakers ({count})",
+  "@partySpeakersConnected": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "partyNoSpeakersYet": "No speakers joined yet. Open Musify on other phones on this Wi-Fi to join.",
+  "partyFineTuneSync": "Sync Fine-Tuning",
+  "partyFineTuneHint": "Adjust if audio echoes due to room acoustics or distance between phones.",
+  "partyRoomCode": "Room Code: {code}",
+  "@partyRoomCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "partyScanningRooms": "Scanning for active party rooms on your Wi-Fi...",
+  "partyNoRoomsFound": "No party rooms found nearby.",
+  "partyManualJoin": "Join with IP or Code"
 }

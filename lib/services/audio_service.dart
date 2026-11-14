@@ -11,6 +11,7 @@ import 'package:musify/services/audio_service_android_auto.dart';
 import 'package:musify/services/common_services.dart';
 import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/listening_stats_service.dart';
+import 'package:musify/services/party_sync/party_sync_service.dart';
 import 'package:musify/services/proxy_manager.dart' show ytClient;
 import 'package:musify/services/settings_manager.dart';
 import 'package:musify/utilities/map_utils.dart';
@@ -1976,6 +1977,11 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           _lastError = e.toString();
         }),
       );
+      if (PartySyncService.instance.isHost) {
+        PartySyncService.instance.broadcastPlaybackPlay(
+          positionMs: audioPlayer.position.inMilliseconds,
+        );
+      }
       listeningStatsService.resumeListeningSession(currentSong: currentSong);
     } catch (e, stackTrace) {
       logger.log('Error in play()', error: e, stackTrace: stackTrace);
@@ -1994,6 +2000,11 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       );
       unawaited(listeningStatsService.flush());
       await audioPlayer.pause();
+      if (PartySyncService.instance.isHost) {
+        PartySyncService.instance.broadcastPlaybackPause(
+          positionMs: audioPlayer.position.inMilliseconds,
+        );
+      }
     } catch (e, stackTrace) {
       logger.log('Error in pause()', error: e, stackTrace: stackTrace);
     }
@@ -2052,6 +2063,11 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
         wasPlaying: audioPlayer.playing,
       );
       await audioPlayer.seek(clampedPosition);
+      if (PartySyncService.instance.isHost) {
+        PartySyncService.instance.broadcastPlaybackSeek(
+          positionMs: clampedPosition.inMilliseconds,
+        );
+      }
       unawaited(listeningStatsService.flush());
     } catch (e, stackTrace) {
       logger.log('Error in seek()', error: e, stackTrace: stackTrace);
@@ -2361,6 +2377,12 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           _lastError = e.toString();
         }),
       );
+      if (PartySyncService.instance.isHost) {
+        PartySyncService.instance.broadcastSongPrepared(song);
+        PartySyncService.instance.broadcastPlaybackPlay(
+          positionMs: 0,
+        );
+      }
       unawaited(updateRecentlyPlayed(song['ytid'], songFallback: song));
 
       if (!isOffline) {
