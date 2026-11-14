@@ -112,15 +112,24 @@ void main() {
       ..add(body);
     await socket.flush();
     await trusted.future;
-    socket
-      ..setRawOption(
+    if (Platform.isWindows) {
+      socket.setRawOption(
+        RawSocketOption(
+          0xffff, // SOL_SOCKET
+          0x0080, // SO_LINGER
+          Uint8List.fromList([1, 0, 0, 0]),
+        ),
+      );
+    } else {
+      socket.setRawOption(
         RawSocketOption(
           1, // SOL_SOCKET
           13, // SO_LINGER
           Uint8List.fromList([1, 0, 0, 0, 0, 0, 0, 0]),
         ),
-      )
-      ..destroy();
+      );
+    }
+    socket.destroy();
     await Future<void>.delayed(const Duration(milliseconds: 200));
     release.complete();
   }
@@ -138,6 +147,9 @@ void main() {
           Hive.box('userNoBackup').get('localSyncPairedDevices') as List;
       expect(stored.map((d) => d['deviceId']), isNot(contains('newcomer')));
     },
+    skip: Platform.isWindows
+        ? 'Windows loopback does not fail on socket reset'
+        : null,
   );
 
   test(
@@ -166,6 +178,9 @@ void main() {
       // The old key still works.
       expect((await h.secure('capabilities', {})).status, 200);
     },
+    skip: Platform.isWindows
+        ? 'Windows loopback does not fail on socket reset'
+        : null,
   );
 
   test('a delivered confirmation completes the pairing', () async {
