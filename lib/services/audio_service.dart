@@ -1967,19 +1967,20 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           await session.setActive(true);
         } catch (_) {}
       }
-      unawaited(
-        audioPlayer.play().catchError((Object e, StackTrace stackTrace) {
-          logger.log(
-            'Error starting playback',
-            error: e,
-            stackTrace: stackTrace,
-          );
-          _lastError = e.toString();
-        }),
-      );
       if (PartySyncService.instance.isHost) {
-        PartySyncService.instance.broadcastPlaybackPlay(
+        PartySyncService.instance.coordinateHostPlay(
           positionMs: audioPlayer.position.inMilliseconds,
+        );
+      } else {
+        unawaited(
+          audioPlayer.play().catchError((Object e, StackTrace stackTrace) {
+            logger.log(
+              'Error starting playback',
+              error: e,
+              stackTrace: stackTrace,
+            );
+            _lastError = e.toString();
+          }),
         );
       }
       listeningStatsService.resumeListeningSession(currentSong: currentSong);
@@ -2001,7 +2002,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       unawaited(listeningStatsService.flush());
       await audioPlayer.pause();
       if (PartySyncService.instance.isHost) {
-        PartySyncService.instance.broadcastPlaybackPause(
+        PartySyncService.instance.coordinateHostPause(
           positionMs: audioPlayer.position.inMilliseconds,
         );
       }
@@ -2064,7 +2065,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       );
       await audioPlayer.seek(clampedPosition);
       if (PartySyncService.instance.isHost) {
-        PartySyncService.instance.broadcastPlaybackSeek(
+        PartySyncService.instance.coordinateHostSeek(
           positionMs: clampedPosition.inMilliseconds,
         );
       }
@@ -2367,20 +2368,18 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           await session.setActive(true);
         } catch (_) {}
       }
-      unawaited(
-        audioPlayer.play().catchError((Object e, StackTrace stackTrace) {
-          logger.log(
-            'Error starting playback',
-            error: e,
-            stackTrace: stackTrace,
-          );
-          _lastError = e.toString();
-        }),
-      );
       if (PartySyncService.instance.isHost) {
-        PartySyncService.instance.broadcastSongPrepared(song);
-        PartySyncService.instance.broadcastPlaybackPlay(
-          positionMs: 0,
+        PartySyncService.instance.coordinateHostSongStart(song);
+      } else {
+        unawaited(
+          audioPlayer.play().catchError((Object e, StackTrace stackTrace) {
+            logger.log(
+              'Error starting playback',
+              error: e,
+              stackTrace: stackTrace,
+            );
+            _lastError = e.toString();
+          }),
         );
       }
       unawaited(updateRecentlyPlayed(song['ytid'], songFallback: song));

@@ -50,6 +50,8 @@ class PartySyncService {
   HttpServer? _hostServer;
   RawDatagramSocket? _hostBroadcastSocket;
   Timer? _hostBroadcastTimer;
+  Timer? _hostPlayScheduleTimer;
+  Timer? _hostPrepareTimeoutTimer;
   final Map<WebSocket, ConnectedSpeaker> _clientSockets = {};
   Map? _currentHostSong;
   bool _isHostPlaying = false;
@@ -291,6 +293,14 @@ class PartySyncService {
               speaker!.isReady = true;
               speaker!.status = 'ready';
               _updateConnectedSpeakersList();
+
+              if (_hostPrepareTimeoutTimer?.isActive == true) {
+                final allReady = _clientSockets.values.every((s) => s.isReady);
+                if (allReady) {
+                  _hostPrepareTimeoutTimer?.cancel();
+                  _triggerSynchronizedStart(positionMs: 0);
+                }
+              }
             }
             break;
 
@@ -359,25 +369,13 @@ class PartySyncService {
     socket.add(prepareMsg.serialize());
   }
 
-  /// Called when the host changes or starts a song.
-  void broadcastSongPrepared(Map song) {
-    if (!isHost) return;
-    _currentHostSong = song;
-    for (final socket in _clientSockets.keys) {
-      _sendPrepareToSocket(socket, song);
-    }
-  }
-
-  /// Called when playback starts on the Host.
-  void broadcastPlaybackPlay({
+  void _triggerSynchronizedStart({
     required int positionMs,
-    int leadTimeMs = 1200,
+    int leadTimeMs = 350,
   }) {
-    if (!isHost) return;
-    _isHostPlaying = true;
-    _lastKnownHostPositionMs = positionMs;
-
+    _hostPlayScheduleTimer?.cancel();
     final targetHostTimeMs = clock.localNowMs + leadTimeMs;
+
     final msg = PartyMessage(
       type: PartyMessageType.play,
       payload: {
@@ -386,13 +384,74 @@ class PartySyncService {
       },
     );
     _broadcastToSpeakers(msg);
+
+    // Host schedules its own playback at targetHostTimeMs
+    _hostPlayScheduleTimer = Timer(Duration(milliseconds: leadTimeMs), () {
+      if (isHost && _isHostPlaying) {
+        unawaited(audioHandler.audioPlayer.play());
+      }
+    });
   }
 
-  /// Called when playback pauses on the Host.
-  void broadcastPlaybackPause({required int positionMs}) {
+  /// Coordinates a synchronized play/resume command for both Host and all connected Speakers.
+  void coordinateHostPlay({
+    required int positionMs,
+    int leadTimeMs = 300,
+  }) {
+    if (!isHost) {
+      unawaited(audioHandler.audioPlayer.play());
+      return;
+    }
+    _isHostPlaying = true;
+    _lastKnownHostPositionMs = positionMs;
+
+    if (_clientSockets.isEmpty) {
+      unawaited(audioHandler.audioPlayer.play());
+      return;
+    }
+
+    _triggerSynchronizedStart(positionMs: positionMs, leadTimeMs: leadTimeMs);
+  }
+
+  /// Coordinates synchronized start of a new song on Host and all Speakers.
+  void coordinateHostSongStart(Map song) {
+    if (!isHost) return;
+    _currentHostSong = song;
+    _isHostPlaying = true;
+    _lastKnownHostPositionMs = 0;
+
+    // Reset readiness on speakers
+    for (final s in _clientSockets.values) {
+      s
+        ..isReady = false
+        ..status = 'buffering';
+    }
+    _updateConnectedSpeakersList();
+
+    // Broadcast prepare to all speakers
+    for (final socket in _clientSockets.keys) {
+      _sendPrepareToSocket(socket, song);
+    }
+
+    if (_clientSockets.isEmpty) {
+      unawaited(audioHandler.audioPlayer.play());
+      return;
+    }
+
+    // Wait up to 1500ms for speakers to prepare, then start synchronized play
+    _hostPrepareTimeoutTimer?.cancel();
+    _hostPrepareTimeoutTimer = Timer(const Duration(milliseconds: 1500), () {
+      _triggerSynchronizedStart(positionMs: 0);
+    });
+  }
+
+  /// Coordinates synchronized pause on Host and all Speakers.
+  void coordinateHostPause({required int positionMs}) {
     if (!isHost) return;
     _isHostPlaying = false;
     _lastKnownHostPositionMs = positionMs;
+    _hostPlayScheduleTimer?.cancel();
+    _hostPrepareTimeoutTimer?.cancel();
 
     final msg = PartyMessage(
       type: PartyMessageType.pause,
@@ -401,15 +460,16 @@ class PartySyncService {
     _broadcastToSpeakers(msg);
   }
 
-  /// Called when host seeks in a song.
-  void broadcastPlaybackSeek({
+  /// Coordinates synchronized seek on Host and all Speakers.
+  void coordinateHostSeek({
     required int positionMs,
-    int leadTimeMs = 800,
+    int leadTimeMs = 350,
   }) {
     if (!isHost) return;
     _lastKnownHostPositionMs = positionMs;
-    final targetHostTimeMs = clock.localNowMs + leadTimeMs;
+    _hostPlayScheduleTimer?.cancel();
 
+    final targetHostTimeMs = clock.localNowMs + leadTimeMs;
     final msg = PartyMessage(
       type: PartyMessageType.seek,
       payload: {
@@ -418,6 +478,14 @@ class PartySyncService {
       },
     );
     _broadcastToSpeakers(msg);
+
+    if (_isHostPlaying) {
+      _hostPlayScheduleTimer = Timer(Duration(milliseconds: leadTimeMs), () {
+        if (isHost && _isHostPlaying) {
+          unawaited(audioHandler.audioPlayer.play());
+        }
+      });
+    }
   }
 
   // ===========================================================================
@@ -590,14 +658,20 @@ class PartySyncService {
 
             final delay = clock.delayUntilHostTime(targetHostTimeMs);
 
+            // Pre-seek immediately while paused so no seek lag occurs when the timer fires
+            if (positionMs > 0 &&
+                (audioHandler.audioPlayer.position.inMilliseconds - positionMs)
+                        .abs() >
+                    150) {
+              unawaited(
+                audioHandler.audioPlayer
+                    .seek(Duration(milliseconds: positionMs)),
+              );
+            }
+
             Timer(delay, () async {
               if (role.value != PartyRole.speaker) return;
               try {
-                if (positionMs > 0) {
-                  await audioHandler.audioPlayer.seek(
-                    Duration(milliseconds: positionMs),
-                  );
-                }
                 await audioHandler.audioPlayer.play();
                 _driftController?.onPlaybackScheduled(
                   startPositionMs: positionMs,
@@ -623,12 +697,15 @@ class PartySyncService {
                 (message.payload['targetHostTimeMs'] as num?)?.toInt() ?? 0;
             final delay = clock.delayUntilHostTime(targetHostTimeMs);
 
+            // Pre-seek immediately while paused
+            unawaited(
+              audioHandler.audioPlayer.seek(Duration(milliseconds: positionMs)),
+            );
+
             Timer(delay, () async {
               if (role.value != PartyRole.speaker) return;
               try {
-                await audioHandler.audioPlayer.seek(
-                  Duration(milliseconds: positionMs),
-                );
+                await audioHandler.audioPlayer.play();
                 _driftController?.onPlaybackScheduled(
                   startPositionMs: positionMs,
                   targetHostTimeMs: targetHostTimeMs,
@@ -745,6 +822,10 @@ class PartySyncService {
 
     _hostBroadcastTimer?.cancel();
     _hostBroadcastTimer = null;
+    _hostPlayScheduleTimer?.cancel();
+    _hostPlayScheduleTimer = null;
+    _hostPrepareTimeoutTimer?.cancel();
+    _hostPrepareTimeoutTimer = null;
     _hostBroadcastSocket?.close();
     _hostBroadcastSocket = null;
 

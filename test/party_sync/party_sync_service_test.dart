@@ -63,7 +63,7 @@ void main() {
       expect(service.connectedSpeakers.value.first.name, 'Mock iPhone');
 
       // Test Host Play broadcast
-      service.broadcastPlaybackPlay(positionMs: 500, leadTimeMs: 1000);
+      service.coordinateHostPlay(positionMs: 500, leadTimeMs: 1000);
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
       expect(receivedMessages.any((m) => m.type == PartyMessageType.play), isTrue);
