@@ -440,13 +440,14 @@ class SettingsPage extends StatelessWidget {
           context.l10n!.about,
           FluentIcons.book_information_24_regular,
           borderRadius: commonCustomBarRadius,
-          onTap: () => NavigationManager.router.go('/settings/about'),
+          onTap: () => context.push('/settings/about'),
         ),
       ],
     );
   }
 
   void _showAccentColorPicker(BuildContext context) {
+    final parentContext = context;
     final colorScheme = Theme.of(context).colorScheme;
 
     showCustomBottomSheet(
@@ -462,7 +463,7 @@ class SettingsPage extends StatelessWidget {
           shrinkWrap: true,
           physics: const BouncingScrollPhysics(),
           itemCount: availableColors.length,
-          itemBuilder: (context, index) {
+          itemBuilder: (itemContext, index) {
             final color = availableColors[index];
             final isSelected = color == primaryColorSetting;
 
@@ -473,13 +474,13 @@ class SettingsPage extends StatelessWidget {
                   'accentColor',
                   color.toARGB32(),
                 );
+                Navigator.of(itemContext).pop();
                 Musify.updateAppState(
-                  context,
+                  parentContext,
                   newAccentColor: color,
                   useSystemColor: false,
                 );
-                showToast(context, context.l10n!.accentChangeMsg);
-                Navigator.pop(context);
+                showToast(parentContext, parentContext.l10n!.accentChangeMsg);
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
@@ -508,6 +509,7 @@ class SettingsPage extends StatelessWidget {
   }
 
   void _showThemeModePicker(BuildContext context) {
+    final parentContext = context;
     final availableModes = [ThemeMode.system, ThemeMode.light, ThemeMode.dark];
     const modeIcons = [
       FluentIcons.phone_24_regular,
@@ -522,20 +524,20 @@ class SettingsPage extends StatelessWidget {
         physics: const BouncingScrollPhysics(),
         padding: commonListViewBottomPadding,
         itemCount: availableModes.length,
-        itemBuilder: (context, index) {
+        itemBuilder: (itemContext, index) {
           final mode = availableModes[index];
           final modeNames = [
-            context.l10n!.themeModeSystem,
-            context.l10n!.themeModeLight,
-            context.l10n!.themeModeDark,
+            parentContext.l10n!.themeModeSystem,
+            parentContext.l10n!.themeModeLight,
+            parentContext.l10n!.themeModeDark,
           ];
 
           return BottomSheetBar(
             modeNames[mode.index],
             () {
               addOrUpdateData<int>('settings', 'themeIndex', mode.index);
-              Musify.updateAppState(context, newThemeMode: mode);
-              Navigator.pop(context);
+              Navigator.of(itemContext).pop();
+              Musify.updateAppState(parentContext, newThemeMode: mode);
             },
             themeMode == mode,
             icon: modeIcons[mode.index],
@@ -546,6 +548,7 @@ class SettingsPage extends StatelessWidget {
   }
 
   void _showLanguagePicker(BuildContext context) {
+    final parentContext = context;
     final availableLanguages = appLanguages.toList();
     final activeLanguageCode = Localizations.localeOf(context).languageCode;
     final activeScriptCode = Localizations.localeOf(context).scriptCode;
@@ -560,34 +563,39 @@ class SettingsPage extends StatelessWidget {
         physics: const BouncingScrollPhysics(),
         padding: commonListViewBottomPadding,
         itemCount: availableLanguages.length,
-        itemBuilder: (context, index) {
+        itemBuilder: (itemContext, index) {
           final language = availableLanguages[index];
           final newLocale = getLocaleFromLanguageCode(language);
           final newLocaleFullCode = newLocale.scriptCode != null
               ? '${newLocale.languageCode}-${newLocale.scriptCode}'
               : newLocale.languageCode;
 
-          return BottomSheetBar(getLanguageDisplayName(context, language), () {
-            addOrUpdateData<String>(
-              'settings',
-              'languageCode',
-              newLocaleFullCode,
-            );
-            Musify.updateAppState(context, newLocale: newLocale);
-            showToast(context, context.l10n!.languageMsg);
-            Navigator.pop(context);
-          }, activeLanguageFullCode == newLocaleFullCode);
+          return BottomSheetBar(
+            getLanguageDisplayName(parentContext, language),
+            () {
+              addOrUpdateData<String>(
+                'settings',
+                'languageCode',
+                newLocaleFullCode,
+              );
+              Navigator.of(itemContext).pop();
+              Musify.updateAppState(parentContext, newLocale: newLocale);
+              showToast(parentContext, parentContext.l10n!.languageMsg);
+            },
+            activeLanguageFullCode == newLocaleFullCode,
+          );
         },
       ),
     );
   }
 
   void _showAudioQualityPicker(BuildContext context) {
+    final parentContext = context;
     final availableQualities = ['low', 'medium', 'high'];
     final qualityNames = [
-      context.l10n!.audioQualityLow,
-      context.l10n!.audioQualityMedium,
-      context.l10n!.audioQualityHigh,
+      parentContext.l10n!.audioQualityLow,
+      parentContext.l10n!.audioQualityMedium,
+      parentContext.l10n!.audioQualityHigh,
     ];
     const qualityIcons = [
       FluentIcons.speaker_1_24_regular,
@@ -602,7 +610,7 @@ class SettingsPage extends StatelessWidget {
         physics: const BouncingScrollPhysics(),
         padding: commonListViewBottomPadding,
         itemCount: availableQualities.length,
-        itemBuilder: (context, index) {
+        itemBuilder: (itemContext, index) {
           final quality = availableQualities[index];
 
           return BottomSheetBar(
@@ -610,8 +618,8 @@ class SettingsPage extends StatelessWidget {
             () {
               addOrUpdateData<String>('settings', 'audioQuality', quality);
               audioQualitySetting.value = quality;
-              showToast(context, context.l10n!.audioQualityMsg);
-              Navigator.pop(context);
+              Navigator.of(itemContext).pop();
+              showToast(parentContext, parentContext.l10n!.audioQualityMsg);
             },
             audioQualitySetting.value == quality,
             icon: qualityIcons[index],

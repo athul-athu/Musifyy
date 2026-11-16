@@ -50,7 +50,10 @@ class Musify extends StatefulWidget {
     Color? newAccentColor,
     bool? useSystemColor,
   }) async {
-    context.findAncestorStateOfType<_MusifyState>()!.changeSettings(
+    final state = context.findAncestorStateOfType<_MusifyState>() ??
+        NavigationManager.parentNavigatorKey.currentContext
+            ?.findAncestorStateOfType<_MusifyState>();
+    state?.changeSettings(
       newThemeMode: newThemeMode,
       newLocale: newLocale,
       newAccentColor: newAccentColor,

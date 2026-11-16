@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
+import 'package:musify/services/router_service.dart';
 import 'package:musify/services/settings_manager.dart';
 import 'package:musify/utilities/flutter_bottom_sheet.dart'
     show closeCurrentBottomSheet;
@@ -30,19 +31,52 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
   /// Track the previously selected shell branch to detect reselects.
   int? _previousShellIndex;
 
+  GlobalKey<NavigatorState>? _getNavigatorKeyForBranch(int index) {
+    switch (index) {
+      case 0:
+        return NavigationManager.homeTabNavigatorKey;
+      case 1:
+        return NavigationManager.searchTabNavigatorKey;
+      case 2:
+        return NavigationManager.libraryTabNavigatorKey;
+      case 3:
+        return NavigationManager.settingsTabNavigatorKey;
+      default:
+        return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: widget.child.currentIndex == 0,
-      onPopInvokedWithResult: (didPop, _) {
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
 
+        // 1. If any modal, dialog, or bottom sheet on the root navigator is open, pop it.
+        if (NavigationManager.parentNavigatorKey.currentState?.canPop() ==
+            true) {
+          NavigationManager.parentNavigatorKey.currentState!.pop();
+          return;
+        }
+
+        // 2. If the current tab has nested screens, pop the nested screen.
+        final branchNavigatorKey =
+            _getNavigatorKeyForBranch(widget.child.currentIndex);
+        if (branchNavigatorKey?.currentState?.canPop() == true) {
+          branchNavigatorKey!.currentState!.pop();
+          return;
+        }
+
+        // 3. If on a non-home tab, go back to the home tab.
         final currentIndex = widget.child.currentIndex;
         if (currentIndex != 0) {
           widget.child.goBranch(0);
-        } else {
-          SystemNavigator.pop();
+          return;
         }
+
+        // 4. If on the home tab with no back stack, exit the app cleanly.
+        await SystemNavigator.pop();
       },
       child: ValueListenableBuilder<bool>(
         valueListenable: offlineMode,
