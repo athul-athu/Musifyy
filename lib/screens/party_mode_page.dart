@@ -1,6 +1,7 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
@@ -11,6 +12,7 @@ import 'package:musify/utilities/platform_utils.dart';
 import 'package:musify/widgets/custom_bar.dart';
 import 'package:musify/widgets/mini_player_bottom_space.dart';
 import 'package:musify/widgets/section_header.dart';
+import 'package:musify/widgets/song_artwork.dart';
 
 class PartyModePage extends StatefulWidget {
   const PartyModePage({super.key});
@@ -76,23 +78,18 @@ class _PartyModePageState extends State<PartyModePage> {
       ),
       body: SingleChildScrollView(
         padding: commonSingleChildScrollViewPadding,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 880),
-            child: ValueListenableBuilder<PartyRole>(
-              valueListenable: _service.role,
-              builder: (context, role, _) {
-                switch (role) {
-                  case PartyRole.host:
-                    return _buildHostView(context);
-                  case PartyRole.speaker:
-                    return _buildSpeakerView(context);
-                  case PartyRole.none:
-                    return _buildIdleView(context);
-                }
-              },
-            ),
-          ),
+        child: ValueListenableBuilder<PartyRole>(
+          valueListenable: _service.role,
+          builder: (context, role, _) {
+            switch (role) {
+              case PartyRole.host:
+                return _buildHostView(context);
+              case PartyRole.speaker:
+                return _buildSpeakerView(context);
+              case PartyRole.none:
+                return _buildIdleView(context);
+            }
+          },
         ),
       ),
     );
@@ -109,8 +106,8 @@ class _PartyModePageState extends State<PartyModePage> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SectionHeader(
-            title: 'Party Mode',
+          SectionHeader(
+            title: l10n.partyModeTitle,
             icon: FluentIcons.speaker_2_24_filled,
           ),
           CustomBar(
@@ -200,7 +197,7 @@ class _PartyModePageState extends State<PartyModePage> {
             );
           },
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 20),
         const SectionHeader(
           title: 'Direct Connect',
           icon: FluentIcons.link_24_filled,
@@ -210,6 +207,7 @@ class _PartyModePageState extends State<PartyModePage> {
           FluentIcons.link_24_regular,
           description: 'Connect directly using Host IP and Port',
           borderRadius: commonCustomBarRadius,
+          trailing: const Icon(FluentIcons.chevron_right_24_regular),
           onTap: () => _showManualJoinDialog(context),
         ),
         const SizedBox(height: 20),
@@ -240,7 +238,7 @@ class _PartyModePageState extends State<PartyModePage> {
           iconColor: theme.colorScheme.primary,
           description:
               '${l10n.partyRoomCode(room?.id ?? '----')} • IP: ${room?.ip}:${room?.port}',
-          borderRadius: commonCustomBarRadiusFirst,
+          borderRadius: commonCustomBarRadius,
           trailing: FilledButton.tonal(
             onPressed: _service.leaveParty,
             child: Text(l10n.partyEndButton),
@@ -249,14 +247,74 @@ class _PartyModePageState extends State<PartyModePage> {
         StreamBuilder(
           stream: audioHandler.mediaItem,
           builder: (context, snapshot) {
-            final title = snapshot.data?.title ?? 'No music playing';
-            final artist = snapshot.data?.artist ??
-                'Play any song to sync across all speakers';
-            return CustomBar(
-              title,
-              FluentIcons.music_note_2_24_regular,
-              description: artist,
-              borderRadius: commonCustomBarRadiusLast,
+            final mediaItem = snapshot.data;
+            if (mediaItem == null) return const SizedBox.shrink();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 20),
+                const SectionHeader(
+                  title: 'Now Streaming',
+                  icon: FluentIcons.music_note_2_24_filled,
+                ),
+                Material(
+                  color: theme.colorScheme.surfaceContainerLow,
+                  borderRadius: commonCustomBarRadius,
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () => context.push('/now-playing'),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          SongArtworkWidget(
+                            size: 52,
+                            metadata: mediaItem,
+                            borderRadius: 12,
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  mediaItem.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  mediaItem.artist ?? 'Unknown Artist',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            FluentIcons.chevron_right_24_regular,
+                            size: 20,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             );
           },
         ),
@@ -282,19 +340,54 @@ class _PartyModePageState extends State<PartyModePage> {
                   for (var i = 0; i < speakers.length; i++)
                     CustomBar(
                       speakers[i].name,
-                      FluentIcons.phone_24_regular,
+                      speakers[i].name.toLowerCase().contains('desktop') ||
+                              speakers[i].name.toLowerCase().contains('windows')
+                          ? FluentIcons.desktop_24_regular
+                          : FluentIcons.phone_24_regular,
                       description:
                           '${speakers[i].ip} • Ping: ${speakers[i].rttMs}ms • Drift: ${speakers[i].driftMs}ms',
                       borderRadius: getItemBorderRadius(i, speakers.length),
-                      trailing: Chip(
-                        label: Text(
-                          speakers[i].status.toUpperCase(),
-                          style: const TextStyle(fontSize: 11),
+                      trailing: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
                         ),
-                        backgroundColor: speakers[i].status == 'ready' ||
-                                speakers[i].status == 'playing'
-                            ? theme.colorScheme.primaryContainer
-                            : theme.colorScheme.surfaceContainerHighest,
+                        decoration: BoxDecoration(
+                          color: speakers[i].status == 'playing' ||
+                                  speakers[i].status == 'ready'
+                              ? theme.colorScheme.primary.withValues(alpha: 0.15)
+                              : theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              speakers[i].status == 'playing'
+                                  ? FluentIcons.speaker_2_16_filled
+                                  : FluentIcons.checkmark_16_regular,
+                              size: 13,
+                              color: speakers[i].status == 'playing' ||
+                                      speakers[i].status == 'ready'
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              speakers[i].status == 'playing'
+                                  ? 'Playing'
+                                  : 'Ready',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: speakers[i].status == 'playing' ||
+                                        speakers[i].status == 'ready'
+                                    ? theme.colorScheme.primary
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
               ],
@@ -329,7 +422,7 @@ class _PartyModePageState extends State<PartyModePage> {
           iconColor: theme.colorScheme.primary,
           description:
               'Host: ${room?.ip}:${room?.port} • Ping: ${_service.clock.rttMs}ms',
-          borderRadius: commonCustomBarRadiusFirst,
+          borderRadius: commonCustomBarRadius,
           trailing: FilledButton.tonal(
             onPressed: _service.leaveParty,
             child: Text(l10n.partyLeaveButton),
@@ -338,14 +431,74 @@ class _PartyModePageState extends State<PartyModePage> {
         StreamBuilder(
           stream: audioHandler.mediaItem,
           builder: (context, snapshot) {
-            final title = snapshot.data?.title ?? 'Synchronized Audio';
-            final artist = snapshot.data?.artist ??
-                'Playing automatically in lockstep with Host';
-            return CustomBar(
-              title,
-              FluentIcons.music_note_2_24_regular,
-              description: artist,
-              borderRadius: commonCustomBarRadiusLast,
+            final mediaItem = snapshot.data;
+            if (mediaItem == null) return const SizedBox.shrink();
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 20),
+                const SectionHeader(
+                  title: 'Now Playing',
+                  icon: FluentIcons.music_note_2_24_filled,
+                ),
+                Material(
+                  color: theme.colorScheme.surfaceContainerLow,
+                  borderRadius: commonCustomBarRadius,
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () => context.push('/now-playing'),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          SongArtworkWidget(
+                            size: 52,
+                            metadata: mediaItem,
+                            borderRadius: 12,
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  mediaItem.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  mediaItem.artist ?? 'Synchronized with Host',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            FluentIcons.chevron_right_24_regular,
+                            size: 20,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             );
           },
         ),
@@ -354,51 +507,65 @@ class _PartyModePageState extends State<PartyModePage> {
           title: l10n.partyFineTuneSync,
           icon: FluentIcons.options_24_filled,
         ),
-        Container(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-            borderRadius: commonCustomBarRadius,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Calibration Offset',
-                    style: theme.textTheme.titleSmall,
-                  ),
-                  Text(
-                    '${_sliderOffset.toInt()} ms',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.primary,
+        Material(
+          color: theme.colorScheme.surfaceContainerLow,
+          borderRadius: commonCustomBarRadius,
+          clipBehavior: Clip.antiAlias,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Calibration Offset',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              Slider(
-                value: _sliderOffset,
-                min: -50,
-                max: 50,
-                divisions: 20,
-                label: '${_sliderOffset.toInt()} ms',
-                onChanged: (val) {
-                  setState(() {
-                    _sliderOffset = val;
-                    _service.calibrationOffsetMs = val.toInt();
-                  });
-                },
-              ),
-              Text(
-                l10n.partyFineTuneHint,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${_sliderOffset >= 0 ? '+' : ''}${_sliderOffset.toInt()} ms',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 4),
+                Slider(
+                  value: _sliderOffset,
+                  min: -50,
+                  max: 50,
+                  divisions: 20,
+                  onChanged: (val) {
+                    setState(() {
+                      _sliderOffset = val;
+                      _service.calibrationOffsetMs = val.toInt();
+                    });
+                  },
+                ),
+                Text(
+                  l10n.partyFineTuneHint,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 20),
