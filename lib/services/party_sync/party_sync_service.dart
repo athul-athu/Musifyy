@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_multicast_lock/flutter_multicast_lock.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:musify/main.dart';
@@ -295,9 +297,7 @@ class PartySyncService {
 
           case PartyMessageType.ready:
             if (speaker != null) {
-              speaker!
-                ..isReady = true
-                ..status = 'ready';
+              speaker!.isReady = true;
               _updateConnectedSpeakersList();
 
               if (_hostPrepareTimeoutTimer?.isActive == true) {
@@ -308,20 +308,24 @@ class PartySyncService {
                 }
               } else if (_isHostPlaying) {
                 // Speaker joined while Host is ALREADY playing:
-                // Automatically send synchronized play command to this newly ready speaker!
-                final currentPos = _currentPositionMs;
-                const leadTimeMs = 350;
-                final targetHostTimeMs = clock.localNowMs + leadTimeMs;
-                final playMsg = PartyMessage(
-                  type: PartyMessageType.play,
-                  payload: {
-                    'positionMs': currentPos + leadTimeMs,
-                    'targetHostTimeMs': targetHostTimeMs,
-                  },
-                );
-                try {
-                  socket.add(playMsg.serialize());
-                } catch (_) {}
+                // Send synchronized play command only once per playback session
+                if (speaker!.status != 'playing') {
+                  speaker!.status = 'playing';
+                  _updateConnectedSpeakersList();
+                  final currentPos = _currentPositionMs;
+                  const leadTimeMs = 400;
+                  final targetHostTimeMs = clock.localNowMs + leadTimeMs;
+                  final playMsg = PartyMessage(
+                    type: PartyMessageType.play,
+                    payload: {
+                      'positionMs': currentPos + leadTimeMs,
+                      'targetHostTimeMs': targetHostTimeMs,
+                    },
+                  );
+                  try {
+                    socket.add(playMsg.serialize());
+                  } catch (_) {}
+                }
               }
             }
             break;
@@ -533,7 +537,6 @@ class PartySyncService {
       _discoverySocket = await RawDatagramSocket.bind(
         InternetAddress.anyIPv4,
         discoveryPort,
-        reusePort: !Platform.isWindows,
       );
 
       _discoverySocket!.listen((event) {
@@ -665,11 +668,8 @@ class PartySyncService {
             break;
 
           case PartyMessageType.welcome:
-            // Sync with current song if playing
-            final song = message.payload['song'] as Map?;
-            if (song != null) {
-              await _prepareSpeakerAudio(song);
-            }
+            // Handshake confirmed by host. No audio preparation here;
+            // audio preparation is driven exclusively by PartyMessageType.prepare.
             break;
 
           case PartyMessageType.prepare:
@@ -757,18 +757,44 @@ class PartySyncService {
     );
   }
 
+  String? _currentlyPreparedYtid;
+  bool _isPreparingSpeakerAudio = false;
+
   Future<void> _prepareSpeakerAudio(Map song, {String? overrideUrl}) async {
+    final ytid = song['ytid']?.toString();
+    if (ytid == null || ytid.isEmpty) return;
+
+    if (_isPreparingSpeakerAudio || _currentlyPreparedYtid == ytid) {
+      return;
+    }
+    _isPreparingSpeakerAudio = true;
+
     try {
-      final ytid = song['ytid'];
-      if (overrideUrl != null && overrideUrl.isNotEmpty) {
-        // Stream directly from Host's HTTP server
-        final source = AudioSource.uri(Uri.parse(overrideUrl));
-        await audioHandler.audioPlayer.setAudioSource(source);
-      } else {
-        // Prepare via standard Musify stream resolution
-        await audioHandler.playSong(song);
-        await audioHandler.audioPlayer.pause();
+      var streamUrl = overrideUrl;
+      if (streamUrl == null || streamUrl.isEmpty) {
+        streamUrl = await fetchSongStreamUrl(ytid, song['isLive'] ?? false);
       }
+
+      if (streamUrl == null || streamUrl.isEmpty) {
+        logger.log('Could not resolve stream URL for speaker: $ytid');
+        return;
+      }
+
+      // Update media item in UI so speaker sees title & artwork
+      final mediaItem = MediaItem(
+        id: ytid,
+        title: song['title']?.toString() ?? 'Party Audio',
+        artist: song['artist']?.toString() ?? 'Party Host',
+        artUri: song['image'] != null
+            ? Uri.tryParse(song['image'].toString())
+            : null,
+      );
+      audioHandler.mediaItem.add(mediaItem);
+
+      // Pre-load audio source in paused state
+      final source = AudioSource.uri(Uri.parse(streamUrl));
+      await audioHandler.audioPlayer.setAudioSource(source);
+      _currentlyPreparedYtid = ytid;
 
       // Pre-buffer: wait until audio player has primed its decoder buffer
       try {
@@ -778,7 +804,7 @@ class PartySyncService {
                   s.processingState == ProcessingState.ready ||
                   s.processingState == ProcessingState.buffering,
             )
-            .timeout(const Duration(milliseconds: 1500));
+            .timeout(const Duration(milliseconds: 2000));
       } catch (_) {}
 
       // Notify Host that this speaker is pre-buffered and ready
@@ -788,7 +814,11 @@ class PartySyncService {
       );
       _speakerSocket?.add(readyMsg.serialize());
     } catch (e) {
-      logger.log('Could not prepare speaker audio: $e');
+      if (e is! PlatformException || e.code != 'abort') {
+        logger.log('Could not prepare speaker audio: $e');
+      }
+    } finally {
+      _isPreparingSpeakerAudio = false;
     }
   }
 
@@ -891,6 +921,9 @@ class PartySyncService {
 
     _discoverySocket?.close();
     _discoverySocket = null;
+
+    _currentlyPreparedYtid = null;
+    _isPreparingSpeakerAudio = false;
 
     _driftController?.dispose();
     _driftController = null;
