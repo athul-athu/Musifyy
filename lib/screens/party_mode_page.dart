@@ -191,7 +191,13 @@ class _PartyModePageState extends State<PartyModePage> {
                         '${rooms[i].currentSongTitle != null ? ' • Playing: ${rooms[i].currentSongTitle}' : ''}',
                     borderRadius: getItemBorderRadius(i, rooms.length),
                     trailing: FilledButton.tonal(
-                      onPressed: () => _service.joinRoom(rooms[i]),
+                      onPressed: () async {
+                        final success = await _service.joinRoom(rooms[i]);
+                        if (!context.mounted) return;
+                        if (!success) {
+                          showToast(context, 'Could not join ${rooms[i].name}. Host port may have changed.');
+                        }
+                      },
                       child: Text(l10n.partyJoinButton),
                     ),
                   ),
@@ -633,12 +639,19 @@ class _PartyModePageState extends State<PartyModePage> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () {
+              onPressed: () async {
                 final ip = _ipController.text.trim();
                 final port = int.tryParse(_portController.text.trim()) ?? 0;
                 Navigator.pop(dialogContext);
                 if (ip.isNotEmpty && port > 0) {
-                  _service.joinByAddress(ip, port);
+                  final success = await _service.joinByAddress(ip, port);
+                  if (!context.mounted) return;
+                  if (!success) {
+                    showToast(
+                      context,
+                      'Failed to connect to Party Host at $ip:$port',
+                    );
+                  }
                 }
               },
               child: const Text('Join'),
