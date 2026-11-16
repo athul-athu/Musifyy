@@ -52,7 +52,7 @@ class AboutPage extends StatelessWidget {
                       borderRadius: BorderRadius.circular(24),
                     ),
                     child: Text(
-                      'v$appVersion',
+                      'v$appVersion ($appVersionCode)',
                       style: TextStyle(
                         color: Theme.of(context)
                             .colorScheme
