@@ -151,8 +151,11 @@ class StreamClient {
           }
           uniqueStreams.addAll(streams);
         });
+        if (uniqueStreams.isNotEmpty) {
+          break;
+        }
       } catch (e, s) {
-        _logger.severe(
+        _logger.fine(
             'Failed to get stream manifest for video $videoId with client: ${client.payload['context']['client']['clientName']}. Reason: $e\n',
             e,
             s);

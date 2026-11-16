@@ -53,7 +53,7 @@ class VideoClient {
         videoId,
         playerResponse.videoTitle,
         playerResponse.videoAuthor,
-        ChannelId(playerResponse.videoChannelId),
+        ChannelId.safe(playerResponse.videoChannelId),
         playerResponse.videoUploadDate ??
             watchPage.root
                 .querySelector('meta[itemprop=uploadDate]')
@@ -86,7 +86,7 @@ class VideoClient {
       videoId,
       playerResponse.videoTitle,
       playerResponse.videoAuthor,
-      ChannelId(playerResponse.videoChannelId),
+      ChannelId.safe(playerResponse.videoChannelId),
       playerResponse.videoUploadDate,
       playerResponse.videoUploadDate.toString(),
       playerResponse.videoPublishDate,

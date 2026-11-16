@@ -16,6 +16,12 @@ abstract class ChannelId with _$ChannelId {
     return ChannelId._internal(id);
   }
 
+  /// Safely creates a [ChannelId] or falls back to a dummy channel id if invalid.
+  factory ChannelId.safe(String? value) {
+    final id = parseChannelId(value ?? '');
+    return ChannelId._internal(id ?? 'UC0000000000000000000000');
+  }
+
   const factory ChannelId._internal(
     /// ID as a string.
     String value,

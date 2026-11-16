@@ -26,9 +26,21 @@ MediaItem mapToMediaItem(Map song) {
       : <String, dynamic>{};
   final isOffline = offlineSong.isNotEmpty;
 
-  final artUri = isOffline && offlineSong['artworkPath'] != null
-      ? Uri.file(offlineSong['artworkPath'].toString())
-      : Uri.parse(song['highResImage'].toString());
+  Uri? artUri;
+  if (isOffline && offlineSong['artworkPath'] != null) {
+    artUri = Uri.file(offlineSong['artworkPath'].toString());
+  } else {
+    final rawArtwork = song['highResImage']?.toString() ??
+        song['lowResImage']?.toString();
+    if (rawArtwork != null &&
+        rawArtwork.isNotEmpty &&
+        rawArtwork != 'null') {
+      final parsed = Uri.tryParse(rawArtwork);
+      if (parsed != null && parsed.hasScheme && parsed.host.isNotEmpty) {
+        artUri = parsed;
+      }
+    }
+  }
 
   return MediaItem(
     id: song['id'].toString(),
