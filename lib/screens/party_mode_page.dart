@@ -1,4 +1,5 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
@@ -29,7 +30,7 @@ class _PartyModePageState extends State<PartyModePage> {
   void initState() {
     super.initState();
     _sliderOffset = _service.calibrationOffsetMs.toDouble();
-    if (!_service.isInParty) {
+    if (!_service.isInParty && !kIsWeb) {
       _service.startDiscovery();
     }
   }
@@ -38,7 +39,7 @@ class _PartyModePageState extends State<PartyModePage> {
   void dispose() {
     _ipController.dispose();
     _portController.dispose();
-    if (!_service.isInParty) {
+    if (!_service.isInParty && !kIsWeb) {
       _service.stopDiscovery();
     }
     super.dispose();
@@ -51,25 +52,26 @@ class _PartyModePageState extends State<PartyModePage> {
       appBar: AppBar(
         title: Text(l10n.partyModeTitle),
         actions: [
-          ValueListenableBuilder<PartyRole>(
-            valueListenable: _service.role,
-            builder: (context, role, _) {
-              if (role == PartyRole.none) {
+          if (!kIsWeb)
+            ValueListenableBuilder<PartyRole>(
+              valueListenable: _service.role,
+              builder: (context, role, _) {
+                if (role == PartyRole.none) {
+                  return IconButton(
+                    icon: const Icon(FluentIcons.arrow_clockwise_24_regular),
+                    tooltip: 'Refresh',
+                    onPressed: _service.startDiscovery,
+                  );
+                }
                 return IconButton(
-                  icon: const Icon(FluentIcons.arrow_clockwise_24_regular),
-                  tooltip: 'Refresh',
-                  onPressed: _service.startDiscovery,
+                  icon: const Icon(FluentIcons.dismiss_24_regular),
+                  tooltip: role == PartyRole.host
+                      ? l10n.partyEndButton
+                      : l10n.partyLeaveButton,
+                  onPressed: _service.leaveParty,
                 );
-              }
-              return IconButton(
-                icon: const Icon(FluentIcons.dismiss_24_regular),
-                tooltip: role == PartyRole.host
-                    ? l10n.partyEndButton
-                    : l10n.partyLeaveButton,
-                onPressed: _service.leaveParty,
-              );
-            },
-          ),
+              },
+            ),
         ],
       ),
       body: SingleChildScrollView(
@@ -102,6 +104,28 @@ class _PartyModePageState extends State<PartyModePage> {
 
   Widget _buildIdleView(BuildContext context) {
     final l10n = context.l10n!;
+
+    if (kIsWeb) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SectionHeader(
+            title: 'Party Mode',
+            icon: FluentIcons.speaker_2_24_filled,
+          ),
+          CustomBar(
+            'Party Mode on Web',
+            FluentIcons.info_24_regular,
+            description:
+                'Multi-device synchronized playback relies on native UDP multicast and local network sockets. '
+                'Please use the Musify Android, iOS, or Desktop app to host or join group speaker parties.',
+            borderRadius: commonCustomBarRadius,
+          ),
+          const SizedBox(height: 20),
+          const MiniPlayerBottomSpace(),
+        ],
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

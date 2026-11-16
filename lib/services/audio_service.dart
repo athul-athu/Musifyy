@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:musify/main.dart';
@@ -621,38 +622,40 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   Future<void> _initialize() async {
     try {
-      final session = await AudioSession.instance;
-      await session.configure(const AudioSessionConfiguration.music());
+      if (!kIsWeb) {
+        final session = await AudioSession.instance;
+        await session.configure(const AudioSessionConfiguration.music());
 
-      session.interruptionEventStream.listen((event) {
-        if (event.begin) {
-          switch (event.type) {
-            case AudioInterruptionType.duck:
-              break;
-            case AudioInterruptionType.pause:
-            case AudioInterruptionType.unknown:
-              audioPlayer.pause();
-              break;
+        session.interruptionEventStream.listen((event) {
+          if (event.begin) {
+            switch (event.type) {
+              case AudioInterruptionType.duck:
+                break;
+              case AudioInterruptionType.pause:
+              case AudioInterruptionType.unknown:
+                audioPlayer.pause();
+                break;
+            }
+          } else {
+            switch (event.type) {
+              case AudioInterruptionType.duck:
+                break;
+              case AudioInterruptionType.pause:
+                audioPlayer.play();
+                break;
+              case AudioInterruptionType.unknown:
+                break;
+            }
           }
-        } else {
-          switch (event.type) {
-            case AudioInterruptionType.duck:
-              break;
-            case AudioInterruptionType.pause:
-              audioPlayer.play();
-              break;
-            case AudioInterruptionType.unknown:
-              break;
-          }
+        });
+
+        session.becomingNoisyEventStream.listen((_) {
+          audioPlayer.pause();
+        });
+
+        if (isApplePlatform) {
+          await session.setActive(true);
         }
-      });
-
-      session.becomingNoisyEventStream.listen((_) {
-        audioPlayer.pause();
-      });
-
-      if (isApplePlatform) {
-        await session.setActive(true);
       }
 
       // Always set loop mode to off - we handle all repeating through _handleSongCompletion
@@ -2095,6 +2098,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   }
 
   Future<bool> _resolveOfflineAndSetPaths(Map songData) async {
+    if (kIsWeb) return false;
     try {
       final ytid = songData['ytid']?.toString();
       if (ytid != null && ytid.isNotEmpty) {

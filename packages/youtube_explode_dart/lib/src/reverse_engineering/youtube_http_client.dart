@@ -12,6 +12,8 @@ import '../videos/streams/mixins/hls_stream_info.dart';
 import '../videos/streams/streams.dart';
 import 'hls_manifest.dart';
 
+const bool _kIsWeb = identical(0, 0.0);
+
 /// HttpClient wrapper for YouTube
 class YoutubeHttpClient extends http.BaseClient {
   final http.Client _httpClient;
@@ -369,6 +371,15 @@ class YoutubeHttpClient extends http.BaseClient {
 
     // Apply default headers if they are not already present
     headers.forEach((key, value) {
+      if (_kIsWeb) {
+        final lowerKey = key.toLowerCase();
+        if (lowerKey == 'user-agent' ||
+            lowerKey == 'cookie' ||
+            lowerKey == 'accept-encoding' ||
+            lowerKey == 'content-length') {
+          return;
+        }
+      }
       if (request.headers[key] == null) {
         request.headers[key] = headers[key]!;
       }

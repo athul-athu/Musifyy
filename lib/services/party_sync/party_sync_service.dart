@@ -104,6 +104,10 @@ class PartySyncService {
 
   /// Starts hosting a Party Room on the local network.
   Future<bool> startHosting({String? customRoomName}) async {
+    if (kIsWeb) {
+      logger.log('Party hosting is not supported on web platforms');
+      return false;
+    }
     await leaveParty();
 
     try {
@@ -513,6 +517,10 @@ class PartySyncService {
   /// Starts listening for Party Rooms broadcasted on the local Wi-Fi.
   Future<void> startDiscovery() async {
     discoveredRooms.value = [];
+    if (kIsWeb) {
+      state.value = PartyState.idle;
+      return;
+    }
     state.value = PartyState.discovering;
 
     try {
@@ -580,6 +588,10 @@ class PartySyncService {
     int port, {
     PartyRoomInfo? roomInfo,
   }) async {
+    if (kIsWeb) {
+      logger.log('Party joining via raw sockets is not supported on web');
+      return false;
+    }
     await leaveParty();
     stopDiscovery();
 
@@ -899,6 +911,7 @@ class PartySyncService {
   }
 
   Future<String?> _findLocalIp() async {
+    if (kIsWeb) return null;
     try {
       final interfaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,

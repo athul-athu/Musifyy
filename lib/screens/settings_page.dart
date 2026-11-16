@@ -1,5 +1,6 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:musify/constants/app_constants.dart';
@@ -54,7 +55,9 @@ class SettingsPage extends StatelessWidget {
             CustomBar(
               context.l10n!.partyModeTitle,
               FluentIcons.speaker_2_24_regular,
-              description: context.l10n!.partyModeDescription,
+              description: kIsWeb
+                  ? 'Available on Android, iOS & Desktop'
+                  : context.l10n!.partyModeDescription,
               borderRadius: commonCustomBarRadius,
               onTap: () => context.push('/settings/party-mode'),
             ),
