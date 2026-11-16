@@ -14,7 +14,9 @@ import 'package:musify/services/data_manager.dart';
 import 'package:musify/services/listening_stats_service.dart';
 import 'package:musify/services/party_sync/party_sync_service.dart';
 import 'package:musify/services/proxy_manager.dart' show ytClient;
+import 'package:musify/services/router_service.dart';
 import 'package:musify/services/settings_manager.dart';
+import 'package:musify/utilities/flutter_toast.dart';
 import 'package:musify/utilities/map_utils.dart';
 import 'package:musify/utilities/media_duration.dart';
 import 'package:musify/utilities/mediaitem.dart';
@@ -1984,6 +1986,14 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
               stackTrace: stackTrace,
             );
             _lastError = e.toString();
+            if (kIsWeb) {
+              try {
+                showToast(
+                  NavigationManager().context,
+                  'Audio playback blocked by browser. Run with --disable-web-security or use Desktop app.',
+                );
+              } catch (_) {}
+            }
           }),
         );
       }
@@ -2175,6 +2185,14 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
       if (playback == null) {
         _lastError = 'Failed to get song URL';
+        if (kIsWeb) {
+          try {
+            showToast(
+              NavigationManager().context,
+              'Browser CORS blocked stream. Run with --disable-web-security or use Desktop app.',
+            );
+          } catch (_) {}
+        }
         return false;
       }
 
@@ -2384,6 +2402,14 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
               stackTrace: stackTrace,
             );
             _lastError = e.toString();
+            if (kIsWeb) {
+              try {
+                showToast(
+                  NavigationManager().context,
+                  'Audio playback blocked by browser. Run with --disable-web-security or use Desktop app.',
+                );
+              } catch (_) {}
+            }
           }),
         );
       }
