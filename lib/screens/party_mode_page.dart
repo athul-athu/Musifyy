@@ -8,6 +8,7 @@ import 'package:musify/main.dart';
 import 'package:musify/services/party_sync/party_protocol.dart';
 import 'package:musify/services/party_sync/party_sync_service.dart';
 import 'package:musify/utilities/app_utils.dart';
+import 'package:musify/utilities/flutter_toast.dart';
 import 'package:musify/utilities/platform_utils.dart';
 import 'package:musify/widgets/custom_bar.dart';
 import 'package:musify/widgets/mini_player_bottom_space.dart';
@@ -50,9 +51,21 @@ class _PartyModePageState extends State<PartyModePage> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n!;
+    final theme = Theme.of(context);
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n.partyModeTitle),
+        centerTitle: true,
+        title: Text(
+          l10n.partyModeTitle,
+          style: TextStyle(
+            fontSize: 28,
+            fontFamily: 'paytoneOne',
+            fontWeight: FontWeight.w500,
+            color: theme.colorScheme.primary,
+            letterSpacing: -0.5,
+          ),
+        ),
         actions: [
           if (!kIsWeb)
             ValueListenableBuilder<PartyRole>(
@@ -144,9 +157,7 @@ class _PartyModePageState extends State<PartyModePage> {
               final success = await _service.startHosting();
               if (!mounted) return;
               if (!success) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Could not start Party Host.')),
-                );
+                showToast(context, 'Could not start Party Host.');
               }
             },
           ),
@@ -285,9 +296,10 @@ class _PartyModePageState extends State<PartyModePage> {
                                   mediaItem.title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontWeight: FontWeight.w600,
                                     fontSize: 15,
+                                    color: theme.colorScheme.onSurface,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -355,7 +367,7 @@ class _PartyModePageState extends State<PartyModePage> {
                         decoration: BoxDecoration(
                           color: speakers[i].status == 'playing' ||
                                   speakers[i].status == 'ready'
-                              ? theme.colorScheme.primary.withValues(alpha: 0.15)
+                              ? theme.colorScheme.primaryContainer
                               : theme.colorScheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(20),
                         ),
@@ -369,7 +381,7 @@ class _PartyModePageState extends State<PartyModePage> {
                               size: 13,
                               color: speakers[i].status == 'playing' ||
                                       speakers[i].status == 'ready'
-                                  ? theme.colorScheme.primary
+                                  ? theme.colorScheme.onPrimaryContainer
                                   : theme.colorScheme.onSurfaceVariant,
                             ),
                             const SizedBox(width: 4),
@@ -382,7 +394,7 @@ class _PartyModePageState extends State<PartyModePage> {
                                 fontWeight: FontWeight.w600,
                                 color: speakers[i].status == 'playing' ||
                                         speakers[i].status == 'ready'
-                                    ? theme.colorScheme.primary
+                                    ? theme.colorScheme.onPrimaryContainer
                                     : theme.colorScheme.onSurfaceVariant,
                               ),
                             ),
@@ -469,9 +481,10 @@ class _PartyModePageState extends State<PartyModePage> {
                                   mediaItem.title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontWeight: FontWeight.w600,
                                     fontSize: 15,
+                                    color: theme.colorScheme.onSurface,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -523,15 +536,16 @@ class _PartyModePageState extends State<PartyModePage> {
                       'Calibration Offset',
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSurface,
                       ),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
-                        vertical: 2,
+                        vertical: 3,
                       ),
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                        color: theme.colorScheme.primaryContainer,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
@@ -539,13 +553,13 @@ class _PartyModePageState extends State<PartyModePage> {
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 12,
-                          color: theme.colorScheme.primary,
+                          color: theme.colorScheme.onPrimaryContainer,
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 8),
                 Slider(
                   value: _sliderOffset,
                   min: -50,
@@ -575,28 +589,48 @@ class _PartyModePageState extends State<PartyModePage> {
   }
 
   void _showManualJoinDialog(BuildContext context) {
+    final theme = Theme.of(context);
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Direct Connect'),
+          title: Text(
+            'Direct Connect',
+            style: TextStyle(
+              fontFamily: 'paytoneOne',
+              fontSize: 22,
+              color: theme.colorScheme.primary,
+            ),
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: _ipController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Host IP Address',
                   hintText: 'e.g. 192.168.1.15',
+                  filled: true,
+                  fillColor: theme.colorScheme.surfaceContainerHigh,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
                 ),
                 keyboardType: TextInputType.datetime,
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _portController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Host Port',
                   hintText: 'e.g. 54321',
+                  filled: true,
+                  fillColor: theme.colorScheme.surfaceContainerHigh,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
                 ),
                 keyboardType: TextInputType.number,
               ),
