@@ -298,7 +298,13 @@ class StreamClient {
       {bool requireWatchPage = true}) async* {
     WatchPage? watchPage;
     if (requireWatchPage) {
-      watchPage = await WatchPage.get(_httpClient, videoId.value);
+      try {
+        watchPage = await WatchPage.get(_httpClient, videoId.value);
+      } catch (e) {
+        _logger.warning(
+          'Failed to fetch watch page for $videoId: $e. Falling back to direct Innertube player response.',
+        );
+      }
     }
     final playerResponse = await _controller
         .getPlayerResponse(videoId, ytClient, watchPage: watchPage);

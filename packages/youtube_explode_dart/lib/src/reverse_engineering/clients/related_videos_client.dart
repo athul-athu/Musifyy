@@ -54,7 +54,7 @@ class RelatedVideosClient {
         duration?.toDuration(),
         ThumbnailSet(videoId),
         [],
-        Engagement(int.parse((views ?? '0').stripNonDigits()), null, null),
+        Engagement(int.tryParse((views ?? '0').stripNonDigits()) ?? 0, null, null),
         duration == 'LIVE');
   }
 
@@ -95,7 +95,7 @@ class RelatedVideosClient {
         duration.toDuration(),
         ThumbnailSet(videoId),
         [],
-        Engagement(int.parse(videoCount.stripNonDigits()), null, null),
+        Engagement(int.tryParse(videoCount.stripNonDigits()) ?? 0, null, null),
         false,
       );
     }

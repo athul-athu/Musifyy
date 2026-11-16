@@ -172,34 +172,43 @@ extension StringUtility2 on String? {
       return null;
     }
 
-    var parts = this!.trim().split(' ');
-    if (parts.length == 4) {
-      // Streamed x y ago
-      parts = parts.skip(1).toList();
-    }
+    try {
+      var parts = this!.trim().split(' ');
+      if (parts.length > 3) {
+        final numIndex = parts.indexWhere((p) => int.tryParse(p) != null);
+        if (numIndex != -1 && numIndex + 1 < parts.length) {
+          parts = parts.sublist(numIndex);
+        }
+      }
 
-    if (parts.length != 3) {
+      if (parts.length < 2) {
+        return null;
+      }
+
+      final qty = int.tryParse(parts.first);
+      if (qty == null) {
+        return null;
+      }
+
+      // Try to get the unit
+      final unit = parts[1].toLowerCase();
+
+      final time = switch (unit) {
+        _ when unit.startsWith('second') => Duration(seconds: qty),
+        _ when unit.startsWith('minute') => Duration(minutes: qty),
+        _ when unit.startsWith('hour') => Duration(hours: qty),
+        _ when unit.startsWith('day') => Duration(days: qty),
+        _ when unit.startsWith('week') => Duration(days: qty * 7),
+        _ when unit.startsWith('month') => Duration(days: qty * 30),
+        _ when unit.startsWith('year') => Duration(days: qty * 365),
+        _ => null,
+      };
+
+      if (time == null) return null;
+      return DateTime.now().subtract(time);
+    } catch (_) {
       return null;
     }
-
-    final qty = int.parse(parts.first);
-
-    // Try to get the unit
-    final unit = parts[1];
-
-    final time = switch (unit) {
-      _ when unit.startsWith('second') => Duration(seconds: qty),
-      _ when unit.startsWith('minute') => Duration(minutes: qty),
-      _ when unit.startsWith('hour') => Duration(hours: qty),
-      _ when unit.startsWith('day') => Duration(days: qty),
-      _ when unit.startsWith('week') => Duration(days: qty * 7),
-      _ when unit.startsWith('month') => Duration(days: qty * 30),
-      _ when unit.startsWith('year') => Duration(days: qty * 365),
-      _ => throw StateError("Couldn't parse $unit unit of time. "
-          'Please report this to the project page!')
-    };
-
-    return DateTime.now().subtract(time);
   }
 
   Uri? toUri() {

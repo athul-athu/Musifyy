@@ -533,7 +533,7 @@ class PartySyncService {
       _discoverySocket = await RawDatagramSocket.bind(
         InternetAddress.anyIPv4,
         discoveryPort,
-        reusePort: true,
+        reusePort: !Platform.isWindows,
       );
 
       _discoverySocket!.listen((event) {

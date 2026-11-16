@@ -6,6 +6,7 @@ import '../reverse_engineering/challenges/js_challenge.dart';
 import '../reverse_engineering/clients/related_videos_client.dart';
 import '../reverse_engineering/pages/watch_page.dart';
 import '../reverse_engineering/youtube_http_client.dart';
+import 'video_controller.dart';
 import 'videos.dart';
 
 /// Queries related to YouTube videos.
@@ -39,37 +40,64 @@ class VideoClient {
 
   /// Gets the metadata associated with the specified video.
   Future<Video> _getVideoFromWatchPage(VideoId videoId) async {
-    final watchPage = await WatchPage.get(_httpClient, videoId.value);
-    final playerResponse = watchPage.playerResponse!;
+    WatchPage? watchPage;
+    try {
+      watchPage = await WatchPage.get(_httpClient, videoId.value);
+    } catch (_) {
+      // If watch page fails (rate limited or unavailable), fall back to Innertube player response
+    }
 
+    if (watchPage != null && watchPage.playerResponse != null) {
+      final playerResponse = watchPage.playerResponse!;
+      return Video(
+        videoId,
+        playerResponse.videoTitle,
+        playerResponse.videoAuthor,
+        ChannelId(playerResponse.videoChannelId),
+        playerResponse.videoUploadDate ??
+            watchPage.root
+                .querySelector('meta[itemprop=uploadDate]')
+                ?.attributes['content']
+                .tryParseDateTime(),
+        playerResponse.videoUploadDate.toString(),
+        playerResponse.videoPublishDate ??
+            watchPage.root
+                .querySelector('meta[itemprop=datePublished]')
+                ?.attributes['content']
+                .tryParseDateTime(),
+        playerResponse.videoDescription,
+        playerResponse.videoDuration,
+        ThumbnailSet(videoId.value),
+        playerResponse.videoKeywords,
+        Engagement(
+          playerResponse.videoViewCount,
+          watchPage.videoLikeCount,
+          watchPage.videoDislikeCount,
+        ),
+        playerResponse.isLive,
+        watchPage.initialData.getMusicData() ?? [],
+        watchPage,
+      );
+    }
+
+    final playerResponse = await VideoController(_httpClient)
+        .getPlayerResponse(videoId, YoutubeApiClient.visionOs);
     return Video(
       videoId,
       playerResponse.videoTitle,
       playerResponse.videoAuthor,
       ChannelId(playerResponse.videoChannelId),
-      playerResponse.videoUploadDate ??
-          watchPage.root
-              .querySelector('meta[itemprop=uploadDate]')
-              ?.attributes['content']
-              .tryParseDateTime(),
+      playerResponse.videoUploadDate,
       playerResponse.videoUploadDate.toString(),
-      playerResponse.videoPublishDate ??
-          watchPage.root
-              .querySelector('meta[itemprop=datePublished]')
-              ?.attributes['content']
-              .tryParseDateTime(),
+      playerResponse.videoPublishDate,
       playerResponse.videoDescription,
       playerResponse.videoDuration,
       ThumbnailSet(videoId.value),
       playerResponse.videoKeywords,
-      Engagement(
-        playerResponse.videoViewCount,
-        watchPage.videoLikeCount,
-        watchPage.videoDislikeCount,
-      ),
+      Engagement(playerResponse.videoViewCount, null, null),
       playerResponse.isLive,
-      watchPage.initialData.getMusicData() ?? [],
-      watchPage,
+      const [],
+      null,
     );
   }
 
@@ -81,12 +109,16 @@ class VideoClient {
   Future<RelatedVideosList?> getRelatedVideos(Video video) async {
     // Try 3 times before giving up
     for (var i = 0; i < 3; i++) {
-      final client = await RelatedVideosClient.get(_httpClient, video);
-      if (client != null) {
-        final videos = client.relatedVideos().toList();
-        if (videos.isNotEmpty) {
-          return RelatedVideosList(videos, client, _httpClient);
+      try {
+        final client = await RelatedVideosClient.get(_httpClient, video);
+        if (client != null) {
+          final videos = client.relatedVideos().toList();
+          if (videos.isNotEmpty) {
+            return RelatedVideosList(videos, client, _httpClient);
+          }
         }
+      } catch (_) {
+        break;
       }
     }
     return null;
