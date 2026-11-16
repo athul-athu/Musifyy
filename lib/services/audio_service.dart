@@ -624,7 +624,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   Future<void> _initialize() async {
     try {
-      if (!kIsWeb) {
+      if (isMobilePlatform || isApplePlatform) {
         final session = await AudioSession.instance;
         await session.configure(const AudioSessionConfiguration.music());
 
@@ -1939,8 +1939,10 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   Future<void> onTaskRemoved() async {
     try {
       await stop();
-      final session = await AudioSession.instance;
-      await session.setActive(false);
+      if (isMobilePlatform || isApplePlatform) {
+        final session = await AudioSession.instance;
+        await session.setActive(false);
+      }
     } catch (e, stackTrace) {
       logger.log('Error in onTaskRemoved', error: e, stackTrace: stackTrace);
     }

@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   app_links
   dynamic_color
+  just_audio_windows
   share_plus
   url_launcher_windows
 )

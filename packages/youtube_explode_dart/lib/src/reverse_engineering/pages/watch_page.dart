@@ -155,7 +155,7 @@ class WatchPage extends YoutubePage<WatchPageInitialData> {
     return retry(httpClient, () async {
       final req = await httpClient.get(url, headers: headers, validate: true);
 
-      final cookieHeader = req.headers['set-cookie']!;
+      final cookieHeader = req.headers['set-cookie'] ?? '';
       final matches = cookiesExp.allMatches(cookieHeader);
       final cookies = Map.fromEntries(
           matches.map((e) => MapEntry(e.group(1)!, e.group(2)!)))
