@@ -386,6 +386,17 @@ class YoutubeHttpClient extends http.BaseClient {
     });
 
     _logger.fine('Sending request: $request', null, StackTrace.current);
+    if (_kIsWeb) {
+      request.headers.removeWhere((key, _) {
+        final lowerKey = key.toLowerCase();
+        return lowerKey == 'user-agent' ||
+            lowerKey == 'cookie' ||
+            lowerKey == 'accept-encoding' ||
+            lowerKey == 'content-length' ||
+            lowerKey == 'referer' ||
+            lowerKey == 'origin';
+      });
+    }
     _logger.finer('Request headers: ${request.headers}');
     if (request is http.Request) {
       _logger.finer('Request body: ${request.body}');

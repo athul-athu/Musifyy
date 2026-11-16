@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:http/http.dart' as http;
 import 'package:musify/constants/clients.dart';
@@ -128,6 +128,7 @@ Future<String?> _getCachedSongUrl(
 
 /// Checks if a cached URL still responds successfully.
 Future<bool> _validateCachedUrl(String cachedUrl) async {
+  if (kIsWeb) return true;
   try {
     final response = await http.head(Uri.parse(cachedUrl));
     return response.statusCode >= 200 && response.statusCode < 300;

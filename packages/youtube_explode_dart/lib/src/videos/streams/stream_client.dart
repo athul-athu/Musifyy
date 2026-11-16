@@ -15,6 +15,8 @@ import '../youtube_api_client.dart';
 import 'stream_controller.dart';
 import 'streams.dart';
 
+const bool _kIsWeb = identical(0, 0.0);
+
 /// Builds the HTTP headers that must accompany any request to a stream URL
 /// minted by [client] (both the manifest-validation HEAD check and the
 /// actual byte-range download).
@@ -134,14 +136,18 @@ class StreamClient {
           // Must use the same User-Agent/headers the client used to obtain
           // this URL, or googlevideo.com will return 403 even for a
           // perfectly valid, PO-Token-exempt stream.
-          final response = await _httpClient.head(
-            streams.first.url,
-            headers: clientRequestHeaders(client),
-          );
-          if (response.statusCode == 403) {
-            throw YoutubeExplodeException(
-              'Video $videoId returned 403 (stream: ${streams.first.tag})',
+          // On web browsers, fetch/XHR forbids setting User-Agent and googlevideo.com
+          // blocks cross-origin HEAD probes. Skip the probe on web.
+          if (!_kIsWeb) {
+            final response = await _httpClient.head(
+              streams.first.url,
+              headers: clientRequestHeaders(client),
             );
+            if (response.statusCode == 403) {
+              throw YoutubeExplodeException(
+                'Video $videoId returned 403 (stream: ${streams.first.tag})',
+              );
+            }
           }
           uniqueStreams.addAll(streams);
         });
@@ -260,6 +266,7 @@ class StreamClient {
   /// best-effort default) if none of them work, rather than throwing here —
   /// the real download attempt will surface any genuine failure.
   Future<Map<String, String>> _resolveHeadersFor(StreamInfo streamInfo) async {
+    if (_kIsWeb) return const {};
     for (final candidate in _autoHeaderCandidates) {
       try {
         final candidateHeaders = clientRequestHeaders(candidate);
