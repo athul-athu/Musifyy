@@ -192,10 +192,20 @@ class PartySyncService {
       }),
     );
 
-    for (final broadcastAddress in [
+    final broadcastAddresses = <InternetAddress>[
       InternetAddress('255.255.255.255'),
-      InternetAddress('${room.ip.substring(0, room.ip.lastIndexOf('.'))}.255'),
-    ]) {
+    ];
+    if (room.ip.contains('.')) {
+      final lastDot = room.ip.lastIndexOf('.');
+      if (lastDot > 0) {
+        final subnetPrefix = room.ip.substring(0, lastDot);
+        if (subnetPrefix != '127.0.0') {
+          broadcastAddresses.add(InternetAddress('$subnetPrefix.255'));
+        }
+      }
+    }
+
+    for (final broadcastAddress in broadcastAddresses) {
       try {
         socket.send(payload, broadcastAddress, discoveryPort);
       } catch (_) {}
@@ -949,6 +959,57 @@ class PartySyncService {
       final interfaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,
       );
+
+      String? bestIp;
+      var bestScore = -1;
+
+      for (final iface in interfaces) {
+        final name = iface.name.toLowerCase();
+
+        // Skip cellular data, tunnels, virtual interfaces, loopback
+        if (name.startsWith('lo') ||
+            name.startsWith('pdp_ip') ||
+            name.startsWith('utun') ||
+            name.startsWith('tun') ||
+            name.startsWith('tap') ||
+            name.startsWith('dummy')) {
+          continue;
+        }
+
+        for (final addr in iface.addresses) {
+          if (addr.isLoopback || addr.isLinkLocal) continue;
+          final ip = addr.address;
+
+          var score = 0;
+          // High preference for standard Wi-Fi / Ethernet interface names (en0 is iOS/macOS Wi-Fi)
+          if (name == 'en0' ||
+              name == 'en1' ||
+              name.contains('wlan') ||
+              name.contains('wi-fi') ||
+              name.contains('wifi') ||
+              name.contains('eth')) {
+            score += 100;
+          }
+
+          // Preference for standard private IPv4 ranges:
+          if (ip.startsWith('192.168.')) {
+            score += 50;
+          } else if (ip.startsWith('10.')) {
+            score += 40;
+          } else if (RegExp(r'^172\.(1[6-9]|2[0-9]|3[0-1])\.').hasMatch(ip)) {
+            score += 30;
+          }
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestIp = ip;
+          }
+        }
+      }
+
+      if (bestIp != null) return bestIp;
+
+      // Fallback: any non-loopback IPv4 address
       for (final iface in interfaces) {
         for (final addr in iface.addresses) {
           if (!addr.isLoopback && !addr.isLinkLocal) {
