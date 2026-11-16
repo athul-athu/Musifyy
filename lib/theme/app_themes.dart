@@ -59,11 +59,11 @@ ThemeData getAppTheme(ColorScheme colorScheme) {
 
   final bgColor = isLight
       ? colorScheme.surface
-      : (isPureBlack ? pureBlack : null);
+      : (isPureBlack ? pureBlack : colorScheme.surface);
 
   final cardBgColor = isLight
       ? colorScheme.surfaceContainerLow
-      : (isPureBlack ? pureBlackElevated : null);
+      : (isPureBlack ? pureBlackElevated : colorScheme.surfaceContainerLow);
 
   // modified color scheme for pure black theme
   final effectiveColorScheme = isPureBlack
@@ -121,7 +121,7 @@ ThemeData getAppTheme(ColorScheme colorScheme) {
     bottomSheetTheme: base.bottomSheetTheme.copyWith(
       backgroundColor: isLight
           ? colorScheme.surfaceContainerLow
-          : (isPureBlack ? pureBlackElevated : null),
+          : (isPureBlack ? pureBlackElevated : colorScheme.surfaceContainerLow),
     ),
     inputDecorationTheme: base.inputDecorationTheme.copyWith(
       filled: true,
@@ -140,7 +140,7 @@ ThemeData getAppTheme(ColorScheme colorScheme) {
     dialogTheme: base.dialogTheme.copyWith(
       backgroundColor: isLight
           ? colorScheme.surfaceContainerLow
-          : (isPureBlack ? pureBlackContainer : null),
+          : (isPureBlack ? pureBlackContainer : colorScheme.surfaceContainerLow),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
     ),
     navigationBarTheme: base.navigationBarTheme.copyWith(
@@ -201,7 +201,7 @@ ThemeData getAppTheme(ColorScheme colorScheme) {
     popupMenuTheme: base.popupMenuTheme.copyWith(
       color: isLight
           ? colorScheme.surfaceContainerLow
-          : (isPureBlack ? pureBlackContainer : null),
+          : (isPureBlack ? pureBlackContainer : colorScheme.surfaceContainerLow),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     ),
     dividerTheme: base.dividerTheme.copyWith(

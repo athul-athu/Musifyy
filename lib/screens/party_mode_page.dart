@@ -1,7 +1,7 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
@@ -54,18 +54,9 @@ class _PartyModePageState extends State<PartyModePage> {
     final theme = Theme.of(context);
 
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        centerTitle: true,
-        title: Text(
-          l10n.partyModeTitle,
-          style: TextStyle(
-            fontSize: 28,
-            fontFamily: 'paytoneOne',
-            fontWeight: FontWeight.w500,
-            color: theme.colorScheme.primary,
-            letterSpacing: -0.5,
-          ),
-        ),
+        title: Text(l10n.partyModeTitle),
         actions: [
           if (!kIsWeb)
             ValueListenableBuilder<PartyRole>(
