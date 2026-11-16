@@ -9,7 +9,7 @@ import 'package:musify/main.dart';
 import 'package:musify/services/router_service.dart';
 import 'package:musify/services/settings_manager.dart';
 import 'package:musify/utilities/flutter_bottom_sheet.dart'
-    show closeCurrentBottomSheet;
+    show closeCurrentBottomSheet, isBottomSheetOpen;
 import 'package:musify/widgets/mini_player.dart';
 
 class BottomNavigationPage extends StatefulWidget {
@@ -53,14 +53,20 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
 
-        // 1. If any modal, dialog, or bottom sheet on the root navigator is open, pop it.
+        // 1. If a custom bottom sheet is currently open, close it.
+        if (isBottomSheetOpen) {
+          closeCurrentBottomSheet();
+          return;
+        }
+
+        // 2. If any modal, dialog, or bottom sheet on the root navigator is open, pop it.
         if (NavigationManager.parentNavigatorKey.currentState?.canPop() ==
             true) {
           NavigationManager.parentNavigatorKey.currentState!.pop();
           return;
         }
 
-        // 2. If the current tab has nested screens, pop the nested screen.
+        // 3. If the current tab has nested screens, pop the nested screen.
         final branchNavigatorKey =
             _getNavigatorKeyForBranch(widget.child.currentIndex);
         if (branchNavigatorKey?.currentState?.canPop() == true) {
@@ -68,14 +74,14 @@ class _BottomNavigationPageState extends State<BottomNavigationPage> {
           return;
         }
 
-        // 3. If on a non-home tab, go back to the home tab.
+        // 4. If on a non-home tab, go back to the home tab.
         final currentIndex = widget.child.currentIndex;
         if (currentIndex != 0) {
           widget.child.goBranch(0);
           return;
         }
 
-        // 4. If on the home tab with no back stack, exit the app cleanly.
+        // 5. If on the home tab with no back stack, exit the app cleanly.
         await SystemNavigator.pop();
       },
       child: ValueListenableBuilder<bool>(

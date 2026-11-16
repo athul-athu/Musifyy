@@ -36,10 +36,19 @@ class _PartyModePageState extends State<PartyModePage> {
     if (!_service.isInParty && !kIsWeb) {
       _service.startDiscovery();
     }
+    _service.role.addListener(_onRoleChanged);
+  }
+
+  void _onRoleChanged() {
+    if (!mounted) return;
+    if (_service.role.value == PartyRole.none && !kIsWeb) {
+      _service.startDiscovery();
+    }
   }
 
   @override
   void dispose() {
+    _service.role.removeListener(_onRoleChanged);
     _ipController.dispose();
     _portController.dispose();
     if (!_service.isInParty && !kIsWeb) {
@@ -66,7 +75,10 @@ class _PartyModePageState extends State<PartyModePage> {
                   return IconButton(
                     icon: const Icon(FluentIcons.arrow_clockwise_24_regular),
                     tooltip: 'Refresh',
-                    onPressed: _service.startDiscovery,
+                    onPressed: () {
+                      _service.startDiscovery();
+                      showToast(context, 'Scanning for party rooms...');
+                    },
                   );
                 }
                 return IconButton(
@@ -160,7 +172,10 @@ class _PartyModePageState extends State<PartyModePage> {
           actionButton: IconButton(
             icon: const Icon(FluentIcons.arrow_clockwise_24_regular),
             tooltip: 'Scan Again',
-            onPressed: _service.startDiscovery,
+            onPressed: () {
+              _service.startDiscovery();
+              showToast(context, 'Scanning for party rooms...');
+            },
           ),
         ),
         ValueListenableBuilder<List<PartyRoomInfo>>(

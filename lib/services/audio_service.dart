@@ -93,7 +93,6 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   bool _pendingForcedPlaybackStateUpdate = false;
   int _songTransitionCounter = 0;
   bool _completionEventPending = false;
-  bool _completionHandlerLoadStarted = false;
   String? _lastError;
   String? _lastDurationVerifiedYtid;
   int _consecutiveErrors = 0;
@@ -289,7 +288,11 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
         .throttleTime(const Duration(milliseconds: 300))
         .listen(
           (pos) {
-            if (audioPlayer.playing && _hasCurrentQueueIndex) {
+            if (audioPlayer.playing &&
+                _hasCurrentQueueIndex &&
+                _currentLoadingIndex == -1 &&
+                _currentLoadingTransitionId == -1 &&
+                _playerSourceMatchesCurrentSong()) {
               final song = _queueList[_currentQueueIndex];
               // Live streams and radio stations do not have an end time; skip completion checks
               if (isCurrentTrackLive ||
@@ -864,12 +867,15 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       final playerProcessingState = audioPlayer.processingState;
       final isPlaying =
           audioPlayer.playing &&
-          playerProcessingState != ProcessingState.completed;
+          playerProcessingState != ProcessingState.completed &&
+          _currentLoadingIndex == -1;
       final currentState = playbackState.valueOrNull;
       final newProcessingState = _isReconnectingRadio
           ? AudioProcessingState.buffering
-          : (_processingStateMap[playerProcessingState] ??
-              AudioProcessingState.idle);
+          : (_currentLoadingIndex >= 0
+              ? AudioProcessingState.loading
+              : (_processingStateMap[playerProcessingState] ??
+                  AudioProcessingState.idle));
       final rawBufferedPosition = audioPlayer.bufferedPosition;
       final bufferedPosition = effectiveDuration > Duration.zero &&
               rawBufferedPosition > effectiveDuration
@@ -945,6 +951,18 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
   void _handleProcessingStateChange(ProcessingState state) {
     try {
       if (state == ProcessingState.completed) {
+        // If a track is currently loading, or the player's loaded source does
+        // not match the current song, this completion event belongs to an old
+        // track or a player reset. Discard it immediately!
+        if (_currentLoadingIndex >= 0 ||
+            _currentLoadingTransitionId != -1 ||
+            !_playerSourceMatchesCurrentSong()) {
+          logger.log(
+            'Ignoring ProcessingState.completed: track is loading or audio source does not match current song',
+          );
+          return;
+        }
+
         if (isCurrentTrackLive) {
           logger.log('Live radio stream interrupted/completed. Reconnecting...');
           unawaited(_reconnectRadioStream());
@@ -969,21 +987,22 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
           Future.microtask(() async {
             try {
-              if (!sleepTimerExpired && _completionEventPending) {
+              if (!sleepTimerExpired &&
+                  _completionEventPending &&
+                  _currentLoadingIndex == -1 &&
+                  _currentLoadingTransitionId == -1) {
                 await _handleSongCompletion();
               }
             } finally {
               // Only reset if still marked as pending (another event didn't override)
               if (_completionEventPending) {
                 _completionEventPending = false;
-                _completionHandlerLoadStarted = false;
               }
             }
           });
         }
       } else if (state == ProcessingState.ready) {
         _completionEventPending = false;
-        _completionHandlerLoadStarted = false;
 
         // Clear the expired flag so future song completions are not
         // blocked after a sleep timer fired in a previous session.
@@ -1103,6 +1122,12 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   Future<void> _handleSongCompletion() async {
     try {
+      // Abort completion if another track is currently loading
+      if (_currentLoadingIndex >= 0 || _currentLoadingTransitionId != -1) {
+        logger.log('Song completion aborted: new track is currently loading');
+        return;
+      }
+
       if (_hasCurrentQueueIndex) {
         _addToHistory(_queueList[_currentQueueIndex]);
       }
@@ -1611,19 +1636,11 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       return;
     }
 
-    // If already loading any song, skip the request
-    // UNLESS we're in the middle of handling a completion event (allow one load attempt)
-    if (_currentLoadingIndex == index && !_completionEventPending) {
-      return;
-    }
+    // Invalidate any pending completion from a prior song before switching
+    _completionEventPending = false;
 
-    if (_currentLoadingIndex >= 0 &&
-        _completionEventPending &&
-        !_completionHandlerLoadStarted) {
-      _completionHandlerLoadStarted = true;
-    } else if (_currentLoadingIndex >= 0 &&
-        _completionEventPending &&
-        _completionHandlerLoadStarted) {
+    // If already loading this specific song, skip redundant request
+    if (_currentLoadingIndex == index) {
       return;
     }
 
@@ -2198,12 +2215,16 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
       _lastError = null;
       _activeRadioStreamInfo = null;
-      if (audioPlayer.playing &&
-          audioPlayer.processingState != ProcessingState.completed) {
+      _completionEventPending = false;
+
+      if (audioPlayer.playing ||
+          audioPlayer.processingState == ProcessingState.completed) {
         listeningStatsService.recordListeningSessionProgress(
           wasPlaying: audioPlayer.playing,
         );
-        await audioPlayer.pause();
+        try {
+          await audioPlayer.pause();
+        } catch (_) {}
       }
 
       final playback = await _resolvePlaybackSource(songData);

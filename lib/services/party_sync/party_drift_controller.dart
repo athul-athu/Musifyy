@@ -59,7 +59,7 @@ class PartyDriftController {
   void _startMonitoring() {
     _monitorTimer?.cancel();
     _monitorTimer = Timer.periodic(
-      const Duration(milliseconds: 2200),
+      const Duration(milliseconds: 1500),
       (_) => _evaluateDrift(),
     );
   }
@@ -94,19 +94,19 @@ class PartyDriftController {
 
     final drift = _smoothedDriftMs;
 
-    // 1. Zone: Inaudible / Perfect Phase (|drift| <= 35ms)
-    // Within 35ms, the phase difference is inaudible in room acoustics.
-    if (drift.abs() <= 35) {
+    // 1. Zone: Inaudible / Tight Phase (|drift| <= 18ms)
+    // Within 18ms, the phase difference is inaudible in room acoustics.
+    if (drift.abs() <= 18) {
       if (audioPlayer.speed != 1) {
         unawaited(audioPlayer.setSpeed(1));
       }
       return;
     }
 
-    // 2. Zone: Micro Drift (35ms < |drift| <= 1500ms)
+    // 2. Zone: Micro Drift (18ms < |drift| <= 1000ms)
     // Gently nudge playback speed by +/- 1.5% without pitch change or buffer flush.
     // This smoothly closes the phase gap without causing any audio breaking or stutter.
-    if (drift > 35 && drift <= 1500) {
+    if (drift > 18 && drift <= 1000) {
       // Client is ahead: gently slow down
       if (audioPlayer.speed != 0.985) {
         unawaited(audioPlayer.setSpeed(0.985));
@@ -114,7 +114,7 @@ class PartyDriftController {
       return;
     }
 
-    if (drift < -35 && drift >= -1500) {
+    if (drift < -18 && drift >= -1000) {
       // Client is behind: gently speed up
       if (audioPlayer.speed != 1.015) {
         unawaited(audioPlayer.setSpeed(1.015));
@@ -122,8 +122,8 @@ class PartyDriftController {
       return;
     }
 
-    // 3. Zone: Massive Desync / Scrub (|drift| > 1500ms)
-    // Only perform a hard seek if the player is more than 1.5 seconds out of sync.
+    // 3. Zone: Massive Desync / Scrub (|drift| > 1000ms)
+    // Only perform a hard seek if the player is more than 1 second out of sync.
     unawaited(
       audioPlayer.seek(
         Duration(

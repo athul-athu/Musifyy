@@ -52,3 +52,4 @@ void main() {
     'Successfully updated to version $version (versionCode: $versionCode)',
   );
 }
+

@@ -29,3 +29,4 @@ if ($versionLine -match '^version:\s*([^\s#]+)') {
 } else {
     Write-Error "Could not find 'version:' line in pubspec.yaml"
 }
+

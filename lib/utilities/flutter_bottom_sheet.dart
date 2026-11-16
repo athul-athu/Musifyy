@@ -69,6 +69,9 @@ Future<T?> showCustomBottomSheet<T>(
   });
 }
 
+bool get isBottomSheetOpen =>
+    _currentBottomSheetContext != null && _currentBottomSheetContext!.mounted;
+
 void closeCurrentBottomSheet() {
   if (_currentBottomSheetContext != null &&
       _currentBottomSheetContext!.mounted) {

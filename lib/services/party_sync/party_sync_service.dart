@@ -62,16 +62,18 @@ class PartySyncService {
   // Speaker / Client properties
   WebSocket? _speakerSocket;
   RawDatagramSocket? _discoverySocket;
+  StreamSubscription<RawSocketEvent>? _discoverySubscription;
   Timer? _clockSyncTimer;
   Timer? _speakerStatusTimer;
+  int _userCalibrationOffsetMs = 0;
 
   bool get isHost => role.value == PartyRole.host;
   bool get isSpeaker => role.value == PartyRole.speaker;
   bool get isInParty => role.value != PartyRole.none;
 
-  int get calibrationOffsetMs =>
-      _driftController?.manualCalibrationOffsetMs ?? 0;
+  int get calibrationOffsetMs => _userCalibrationOffsetMs;
   set calibrationOffsetMs(int value) {
+    _userCalibrationOffsetMs = value;
     _driftController?.manualCalibrationOffsetMs = value;
   }
 
@@ -166,6 +168,14 @@ class PartySyncService {
         (_) => _sendHostBroadcast(room),
       );
       _sendHostBroadcast(room);
+      Future.delayed(
+        const Duration(milliseconds: 150),
+        () => _sendHostBroadcast(room),
+      );
+      Future.delayed(
+        const Duration(milliseconds: 400),
+        () => _sendHostBroadcast(room),
+      );
     } catch (e) {
       logger.log('Could not initialize Party broadcast socket: $e');
     }
@@ -314,7 +324,7 @@ class PartySyncService {
                 final allReady = _clientSockets.values.every((s) => s.isReady);
                 if (allReady) {
                   _hostPrepareTimeoutTimer?.cancel();
-                  _triggerSynchronizedStart(positionMs: 0);
+                  _triggerSynchronizedStart(positionMs: 0, leadTimeMs: 400);
                 }
               } else if (_isHostPlaying) {
                 // Speaker joined while Host is ALREADY playing:
@@ -474,10 +484,10 @@ class PartySyncService {
       return;
     }
 
-    // Wait up to 1500ms for speakers to prepare, then start synchronized play
+    // Wait up to 2000ms for speakers to prepare, then start synchronized play
     _hostPrepareTimeoutTimer?.cancel();
-    _hostPrepareTimeoutTimer = Timer(const Duration(milliseconds: 1500), () {
-      _triggerSynchronizedStart(positionMs: 0);
+    _hostPrepareTimeoutTimer = Timer(const Duration(milliseconds: 2000), () {
+      _triggerSynchronizedStart(positionMs: 0, leadTimeMs: 400);
     });
   }
 
@@ -537,6 +547,13 @@ class PartySyncService {
     }
     state.value = PartyState.discovering;
 
+    // If socket is already bound and actively listening, no need to re-bind
+    if (_discoverySocket != null && _discoverySubscription != null) {
+      return;
+    }
+
+    stopDiscovery();
+
     try {
       if (isAndroidPlatform) {
         try {
@@ -549,42 +566,57 @@ class PartySyncService {
         discoveryPort,
       );
 
-      _discoverySocket!.listen((event) {
-        if (event != RawSocketEvent.read) return;
-        final datagram = _discoverySocket?.receive();
-        if (datagram == null) return;
+      _discoverySubscription = _discoverySocket!.listen(
+        (event) {
+          if (event != RawSocketEvent.read) return;
+          try {
+            final datagram = _discoverySocket?.receive();
+            if (datagram == null) return;
 
-        try {
-          final text = utf8.decode(datagram.data);
-          final json = jsonDecode(text) as Map<String, dynamic>;
-          if (json['protocol'] == discoveryProtocol && json['room'] != null) {
-            final room = PartyRoomInfo.fromJson(
-              (json['room'] as Map).cast<String, dynamic>(),
-            );
+            final text = utf8.decode(datagram.data);
+            final json = jsonDecode(text) as Map<String, dynamic>;
+            if (json['protocol'] == discoveryProtocol && json['room'] != null) {
+              final room = PartyRoomInfo.fromJson(
+                (json['room'] as Map).cast<String, dynamic>(),
+              );
 
-            // Avoid adding own room if running in test / same device
-            if (isHost && room.id == currentRoom.value?.id) return;
+              // Avoid adding own room if running in test / same device
+              if (isHost && room.id == currentRoom.value?.id) return;
 
-            final existing = List<PartyRoomInfo>.from(discoveredRooms.value);
-            final index = existing.indexWhere((r) => r.id == room.id);
-            if (index >= 0) {
-              existing[index] = room;
-            } else {
-              existing.add(room);
+              final existing = List<PartyRoomInfo>.from(discoveredRooms.value);
+              final index = existing.indexWhere((r) => r.id == room.id);
+              if (index >= 0) {
+                existing[index] = room;
+              } else {
+                existing.add(room);
+              }
+              discoveredRooms.value = existing;
             }
-            discoveredRooms.value = existing;
-          }
-        } catch (_) {}
-      });
+          } catch (_) {}
+        },
+        onError: (e) {
+          logger.log('Discovery socket stream error: $e');
+        },
+        cancelOnError: false,
+      );
     } catch (e) {
       logger.log('Could not start Party room discovery: $e');
+      stopDiscovery();
     }
   }
 
   /// Stops room discovery.
   void stopDiscovery() {
-    _discoverySocket?.close();
+    try {
+      _discoverySubscription?.cancel();
+    } catch (_) {}
+    _discoverySubscription = null;
+
+    try {
+      _discoverySocket?.close();
+    } catch (_) {}
     _discoverySocket = null;
+
     if (state.value == PartyState.discovering) {
       state.value = PartyState.idle;
     }
@@ -631,7 +663,7 @@ class PartySyncService {
       _driftController = PartyDriftController(
         clock: clock,
         audioPlayer: audioHandler.audioPlayer,
-      );
+      )..manualCalibrationOffsetMs = _userCalibrationOffsetMs;
 
       _setupSpeakerSocketListener(_speakerSocket!);
 
@@ -696,7 +728,7 @@ class PartySyncService {
             final targetHostTimeMs =
                 (message.payload['targetHostTimeMs'] as num?)?.toInt() ?? 0;
 
-            final delay = clock.delayUntilHostTime(targetHostTimeMs);
+            final rawDelay = clock.delayUntilHostTime(targetHostTimeMs);
 
             // Pre-seek immediately while paused so no seek lag occurs when the timer fires
             if (positionMs > 0 &&
@@ -709,7 +741,16 @@ class PartySyncService {
               );
             }
 
-            Timer(delay, () async {
+            // Compensate for hardware acoustic output latency (AudioTrack buffer fill)
+            final hardwareLatencyMs = isMobilePlatform ? 55 : 20;
+            final effectiveDelayMs = max(
+              0,
+              rawDelay.inMilliseconds -
+                  hardwareLatencyMs +
+                  _userCalibrationOffsetMs,
+            );
+
+            Timer(Duration(milliseconds: effectiveDelayMs), () async {
               if (role.value != PartyRole.speaker) return;
               try {
                 await audioHandler.audioPlayer.play();
@@ -735,14 +776,22 @@ class PartySyncService {
                 (message.payload['positionMs'] as num?)?.toInt() ?? 0;
             final targetHostTimeMs =
                 (message.payload['targetHostTimeMs'] as num?)?.toInt() ?? 0;
-            final delay = clock.delayUntilHostTime(targetHostTimeMs);
+            final rawDelay = clock.delayUntilHostTime(targetHostTimeMs);
 
             // Pre-seek immediately while paused
             unawaited(
               audioHandler.audioPlayer.seek(Duration(milliseconds: positionMs)),
             );
 
-            Timer(delay, () async {
+            final hardwareLatencyMs = isMobilePlatform ? 55 : 20;
+            final effectiveDelayMs = max(
+              0,
+              rawDelay.inMilliseconds -
+                  hardwareLatencyMs +
+                  _userCalibrationOffsetMs,
+            );
+
+            Timer(Duration(milliseconds: effectiveDelayMs), () async {
               if (role.value != PartyRole.speaker) return;
               try {
                 await audioHandler.audioPlayer.play();
@@ -780,6 +829,12 @@ class PartySyncService {
     _isPreparingSpeakerAudio = true;
 
     try {
+      // Pause current audio immediately so old track does not keep playing while loading new song
+      try {
+        await audioHandler.audioPlayer.pause();
+      } catch (_) {}
+      _driftController?.onPlaybackPaused(positionMs: 0);
+
       var streamUrl = overrideUrl;
       if (streamUrl == null || streamUrl.isEmpty) {
         streamUrl = await fetchSongStreamUrl(ytid, song['isLive'] ?? false);
@@ -929,8 +984,7 @@ class PartySyncService {
     } catch (_) {}
     _speakerSocket = null;
 
-    _discoverySocket?.close();
-    _discoverySocket = null;
+    stopDiscovery();
 
     _currentlyPreparedYtid = null;
     _isPreparingSpeakerAudio = false;
