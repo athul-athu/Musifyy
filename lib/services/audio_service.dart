@@ -1134,7 +1134,8 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       return;
     }
 
-    final baseYtid = _getCurrentSongForRecommendations()?['ytid']?.toString();
+    final baseYtid = currentSong?['ytid']?.toString() ??
+        _getCurrentSongForRecommendations()?['ytid']?.toString();
     if (baseYtid == null || baseYtid.isEmpty) return;
 
     try {
@@ -1157,9 +1158,12 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
       // The user may have skipped, paused or extended the queue meanwhile.
       final isStillRelevant =
-          (audioPlayer.playing || audioPlayer.processingState == ProcessingState.completed) &&
+          (audioPlayer.playing ||
+              audioPlayer.processingState == ProcessingState.completed ||
+              audioPlayer.processingState == ProcessingState.ready) &&
           !hasNext &&
-          _getCurrentSongForRecommendations()?['ytid']?.toString() == baseYtid;
+          (currentSong?['ytid']?.toString() == baseYtid ||
+              _getCurrentSongForRecommendations()?['ytid']?.toString() == baseYtid);
       if (recommended == null || !isStillRelevant) return;
 
       await _insertRecommendedSong(recommended);
@@ -1248,7 +1252,8 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           playNextSongAutomatically.value &&
           !sleepTimerExpired &&
           _currentLoadingIndex == -1 &&
-          audioPlayer.processingState == ProcessingState.completed &&
+          (audioPlayer.processingState == ProcessingState.completed ||
+              !audioPlayer.playing) &&
           isCurrentSongAtEnd;
 
       if (shouldPlayInsertedSong) {
@@ -1662,12 +1667,39 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
             unawaited(_backgroundAddSongsToQueue());
           }
         } else {
-          _currentQueueIndex = previousQueueIndex;
-          if (previousMediaItem != null) {
-            mediaItem.add(previousMediaItem);
+          _consecutiveErrors++;
+          logger.log(
+            'Failed to play song at queue index $index: ${_queueList[index]['title']}. '
+            'Consecutive errors: $_consecutiveErrors/$_maxConsecutiveErrors',
+          );
+
+          if (_consecutiveErrors < _maxConsecutiveErrors && _canRetryPlayback()) {
+            final nextIndex = index + 1;
+            if (nextIndex < _queueList.length) {
+              await _playFromQueue(nextIndex);
+            } else if (repeatNotifier.value == AudioServiceRepeatMode.all &&
+                _queueList.isNotEmpty) {
+              await _playFromQueue(0);
+            } else if (playNextSongAutomatically.value) {
+              await _backgroundAddSongsToQueue();
+            } else {
+              _currentQueueIndex = previousQueueIndex;
+              if (previousMediaItem != null) {
+                mediaItem.add(previousMediaItem);
+              }
+              _updatePlaybackState();
+            }
+          } else {
+            _currentQueueIndex = previousQueueIndex;
+            if (previousMediaItem != null) {
+              mediaItem.add(previousMediaItem);
+            }
+            _updatePlaybackState();
+            if (_consecutiveErrors >= _maxConsecutiveErrors) {
+              logger.log('Max consecutive errors reached. Stopping playback.');
+              unawaited(stop());
+            }
           }
-          _updatePlaybackState();
-          _handlePlaybackError();
         }
       }
     } catch (e, stackTrace) {
@@ -2166,7 +2198,8 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
       _lastError = null;
       _activeRadioStreamInfo = null;
-      if (audioPlayer.playing) {
+      if (audioPlayer.playing &&
+          audioPlayer.processingState != ProcessingState.completed) {
         listeningStatsService.recordListeningSessionProgress(
           wasPlaying: audioPlayer.playing,
         );
@@ -2779,10 +2812,9 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       } else if (repeatNotifier.value == AudioServiceRepeatMode.all &&
           _queueList.isNotEmpty) {
         await _playFromQueue(0);
-      } else if (playNextSongAutomatically.value &&
-          _currentLoadingIndex == -1) {
-        // At end of queue with auto-play enabled - trigger background fetch
-        unawaited(_backgroundAddSongsToQueue());
+      } else if (playNextSongAutomatically.value) {
+        // At end of queue with auto-play enabled - fetch and play next song
+        await _backgroundAddSongsToQueue();
       } else {
         if (audioPlayer.processingState != ProcessingState.completed) {
           await stop();

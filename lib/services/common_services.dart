@@ -605,18 +605,61 @@ Future<Map<String, dynamic>?> getSimilarSong(
 
     for (final video in relatedSongs) {
       final candidate = returnSongLayout(0, video);
-      if (!excludedYtIds.contains(candidate['ytid']?.toString())) {
+      final candidateId = candidate['ytid']?.toString();
+      if (candidateId != null &&
+          candidateId.isNotEmpty &&
+          !excludedYtIds.contains(candidateId)) {
         return candidate;
       }
     }
-    logger.log('No new related songs found for $songYtId');
+
+    // Fallback 1: Search YouTube for more songs by the same artist
+    final author = song.author.trim();
+    if (author.isNotEmpty) {
+      try {
+        final searchResults = await ytClient.search.search('$author songs');
+        for (final video in searchResults) {
+          final candidate = returnSongLayout(0, video);
+          final candidateId = candidate['ytid']?.toString();
+          if (candidateId != null &&
+              candidateId.isNotEmpty &&
+              !excludedYtIds.contains(candidateId)) {
+            return candidate;
+          }
+        }
+      } catch (_) {}
+    }
   } catch (e, stackTrace) {
     logger.log(
-      'Error while fetching next similar song:',
+      'Error while fetching next similar song via related videos:',
       error: e,
       stackTrace: stackTrace,
     );
   }
+
+  // Fallback 2: Pick from user's recently played or liked songs
+  try {
+    final recentSongs = userRecentlyPlayed.value;
+    for (final item in recentSongs) {
+      if (item is Map) {
+        final id = item['ytid']?.toString();
+        if (id != null && id.isNotEmpty && !excludedYtIds.contains(id)) {
+          return Map<String, dynamic>.from(item);
+        }
+      }
+    }
+    final likedSongs = userLikedSongsList.value;
+    for (final item in likedSongs) {
+      if (item is Map) {
+        final id = item['ytid']?.toString();
+        if (id != null && id.isNotEmpty && !excludedYtIds.contains(id)) {
+          return Map<String, dynamic>.from(item);
+        }
+      }
+    }
+  } catch (_) {}
+
+  logger.log('No new related songs found for $songYtId');
   return null;
 }
 
