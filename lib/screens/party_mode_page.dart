@@ -369,7 +369,7 @@ class _PartyModePageState extends State<PartyModePage> {
                           ? FluentIcons.desktop_24_regular
                           : FluentIcons.phone_24_regular,
                       description:
-                          '${speakers[i].ip} • Ping: ${speakers[i].rttMs}ms • Drift: ${speakers[i].driftMs}ms',
+                          '${speakers[i].ip} • Ping: ${speakers[i].rttMs}ms • Drift: ${speakers[i].driftMs}ms${speakers[i].clockUncertaintyMs > 0 ? ' (±${speakers[i].clockUncertaintyMs}ms)' : ''}',
                       borderRadius: getItemBorderRadius(i, speakers.length),
                       trailing: Container(
                         padding: const EdgeInsets.symmetric(
@@ -445,7 +445,7 @@ class _PartyModePageState extends State<PartyModePage> {
           FluentIcons.speaker_2_24_filled,
           iconColor: theme.colorScheme.primary,
           description:
-              'Host: ${room?.ip}:${room?.port} • Ping: ${_service.clock.rttMs}ms',
+              'Host: ${room?.ip}:${room?.port} • Ping: ${_service.clock.rttMs}ms • Sync: ${_service.syncQuality.name.toUpperCase()}',
           borderRadius: commonCustomBarRadius,
           trailing: FilledButton.tonal(
             onPressed: _service.leaveParty,

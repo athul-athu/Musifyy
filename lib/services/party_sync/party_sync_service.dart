@@ -67,9 +67,21 @@ class PartySyncService {
   Timer? _speakerStatusTimer;
   int _userCalibrationOffsetMs = 0;
 
+  String _sessionId = '';
+  String _clockEpochId = '';
+  int _revision = 0;
+
   bool get isHost => role.value == PartyRole.host;
   bool get isSpeaker => role.value == PartyRole.speaker;
   bool get isInParty => role.value != PartyRole.none;
+
+  String get sessionId => _sessionId;
+  String get clockEpochId => _clockEpochId;
+  int get revision => _revision;
+  SyncQuality get syncQuality => clock.quality;
+  int get clockUncertaintyMs => clock.uncertaintyMs;
+  double get clockDriftRatePpm => clock.driftRatePpm;
+  int get reanchorCount => _driftController?.reanchorCount ?? 0;
 
   int get calibrationOffsetMs => _userCalibrationOffsetMs;
   set calibrationOffsetMs(int value) {
@@ -124,6 +136,11 @@ class PartySyncService {
       final hostIp = await _findLocalIp() ?? '127.0.0.1';
       _hostServer = await HttpServer.bind(InternetAddress.anyIPv4, 0);
 
+      _sessionId = PartyMessage.generateId();
+      _clockEpochId = PartyMessage.generateId();
+      _revision = 0;
+      clock.setClockEpoch(_clockEpochId);
+
       final roomCode = (1000 + Random().nextInt(9000)).toString();
       final roomName = customRoomName ?? '$deviceName Party';
 
@@ -134,6 +151,7 @@ class PartySyncService {
         ip: hostIp,
         port: _hostServer!.port,
         currentSongTitle: _currentSongTitle,
+        sessionId: _sessionId,
       );
 
       currentRoom.value = room;
@@ -193,6 +211,7 @@ class PartySyncService {
       port: room.port,
       speakersCount: _clientSockets.length,
       currentSongTitle: _currentSongTitle,
+      sessionId: _sessionId,
     );
 
     final payload = utf8.encode(
@@ -285,8 +304,11 @@ class PartySyncService {
             _updateConnectedSpeakersList();
 
             // Send Welcome with current state
-            final welcome = PartyMessage(
+            final welcome = PartyMessage.create(
               type: PartyMessageType.welcome,
+              sessionId: _sessionId,
+              clockEpochId: _clockEpochId,
+              revision: ++_revision,
               payload: {
                 'room': currentRoom.value?.toJson(),
                 'song': _currentHostSong,
@@ -294,6 +316,8 @@ class PartySyncService {
                 'positionMs': _lastKnownHostPositionMs > 0
                     ? _lastKnownHostPositionMs
                     : _currentPositionMs,
+                'sessionId': _sessionId,
+                'clockEpochId': _clockEpochId,
               },
             );
             socket.add(welcome.serialize());
@@ -308,9 +332,17 @@ class PartySyncService {
             final t0 = (message.payload['t0'] as num?)?.toInt() ?? 0;
             final t1 = clock.localNowMicros;
             final t2 = clock.localNowMicros;
-            final pong = PartyMessage(
+            final pong = PartyMessage.create(
               type: PartyMessageType.pong,
-              payload: {'t0': t0, 't1': t1, 't2': t2},
+              sessionId: _sessionId,
+              clockEpochId: _clockEpochId,
+              revision: ++_revision,
+              payload: {
+                't0': t0,
+                't1': t1,
+                't2': t2,
+                'clockEpochId': _clockEpochId,
+              },
             );
             socket.add(pong.serialize());
             break;
@@ -335,8 +367,11 @@ class PartySyncService {
                   final currentPos = _currentPositionMs;
                   const leadTimeMs = 400;
                   final targetHostTimeMs = clock.localNowMs + leadTimeMs;
-                  final playMsg = PartyMessage(
+                  final playMsg = PartyMessage.create(
                     type: PartyMessageType.play,
+                    sessionId: _sessionId,
+                    clockEpochId: _clockEpochId,
+                    revision: ++_revision,
                     payload: {
                       'positionMs': currentPos + leadTimeMs,
                       'targetHostTimeMs': targetHostTimeMs,
@@ -356,8 +391,15 @@ class PartySyncService {
                   (message.payload['driftMs'] as num?)?.toInt() ?? 0;
               speaker!.rttMs =
                   (message.payload['rttMs'] as num?)?.toInt() ?? 0;
+              speaker!.clockUncertaintyMs =
+                  (message.payload['clockUncertaintyMs'] as num?)?.toInt() ?? 0;
+              speaker!.reanchorCount =
+                  (message.payload['reanchorCount'] as num?)?.toInt() ?? 0;
               speaker!.status =
                   message.payload['status'] as String? ?? 'playing';
+              speaker!.playbackState =
+                  message.payload['playbackState'] as String? ?? 'playing';
+              speaker!.lastHeartbeatMs = DateTime.now().millisecondsSinceEpoch;
               _updateConnectedSpeakersList();
             }
             break;
@@ -402,8 +444,11 @@ class PartySyncService {
     final isOffline = song['isOffline'] == true;
     final ytid = song['ytid'];
 
-    final prepareMsg = PartyMessage(
+    final prepareMsg = PartyMessage.create(
       type: PartyMessageType.prepare,
+      sessionId: _sessionId,
+      clockEpochId: _clockEpochId,
+      revision: ++_revision,
       payload: {
         'song': song,
         'streamUrl': isOffline
@@ -422,8 +467,11 @@ class PartySyncService {
     _hostPlayScheduleTimer?.cancel();
     final targetHostTimeMs = clock.localNowMs + leadTimeMs;
 
-    final msg = PartyMessage(
+    final msg = PartyMessage.create(
       type: PartyMessageType.play,
+      sessionId: _sessionId,
+      clockEpochId: _clockEpochId,
+      revision: ++_revision,
       payload: {
         'positionMs': positionMs,
         'targetHostTimeMs': targetHostTimeMs,
@@ -499,8 +547,11 @@ class PartySyncService {
     _hostPlayScheduleTimer?.cancel();
     _hostPrepareTimeoutTimer?.cancel();
 
-    final msg = PartyMessage(
+    final msg = PartyMessage.create(
       type: PartyMessageType.pause,
+      sessionId: _sessionId,
+      clockEpochId: _clockEpochId,
+      revision: ++_revision,
       payload: {'positionMs': positionMs},
     );
     _broadcastToSpeakers(msg);
@@ -516,8 +567,11 @@ class PartySyncService {
     _hostPlayScheduleTimer?.cancel();
 
     final targetHostTimeMs = clock.localNowMs + leadTimeMs;
-    final msg = PartyMessage(
+    final msg = PartyMessage.create(
       type: PartyMessageType.seek,
+      sessionId: _sessionId,
+      clockEpochId: _clockEpochId,
+      revision: ++_revision,
       payload: {
         'positionMs': positionMs,
         'targetHostTimeMs': targetHostTimeMs,
@@ -668,8 +722,9 @@ class PartySyncService {
       _setupSpeakerSocketListener(_speakerSocket!);
 
       // Send Join Message
-      final joinMsg = PartyMessage(
+      final joinMsg = PartyMessage.create(
         type: PartyMessageType.join,
+        sessionId: currentRoom.value?.sessionId ?? '',
         payload: {
           'id': deviceName,
           'name': deviceName,
@@ -702,6 +757,12 @@ class PartySyncService {
 
         switch (message.type) {
           case PartyMessageType.pong:
+            final epoch = message.clockEpochId.isNotEmpty
+                ? message.clockEpochId
+                : (message.payload['clockEpochId'] as String? ?? '');
+            if (epoch.isNotEmpty && epoch != clock.clockEpochId) {
+              clock.setClockEpoch(epoch);
+            }
             final t0 = (message.payload['t0'] as num?)?.toInt() ?? 0;
             final t1 = (message.payload['t1'] as num?)?.toInt() ?? 0;
             final t2 = (message.payload['t2'] as num?)?.toInt() ?? 0;
@@ -710,8 +771,18 @@ class PartySyncService {
             break;
 
           case PartyMessageType.welcome:
-            // Handshake confirmed by host. No audio preparation here;
-            // audio preparation is driven exclusively by PartyMessageType.prepare.
+            final epoch = message.clockEpochId.isNotEmpty
+                ? message.clockEpochId
+                : (message.payload['clockEpochId'] as String? ?? '');
+            if (epoch.isNotEmpty) {
+              clock.setClockEpoch(epoch);
+            }
+            final sess = message.sessionId.isNotEmpty
+                ? message.sessionId
+                : (message.payload['sessionId'] as String? ?? '');
+            if (sess.isNotEmpty) {
+              _sessionId = sess;
+            }
             break;
 
           case PartyMessageType.prepare:
@@ -873,8 +944,10 @@ class PartySyncService {
       } catch (_) {}
 
       // Notify Host that this speaker is pre-buffered and ready
-      final readyMsg = PartyMessage(
+      final readyMsg = PartyMessage.create(
         type: PartyMessageType.ready,
+        sessionId: _sessionId,
+        clockEpochId: clock.clockEpochId,
         payload: {'ytid': ytid},
       );
       _speakerSocket?.add(readyMsg.serialize());
@@ -891,25 +964,27 @@ class PartySyncService {
     _clockSyncTimer?.cancel();
     var pingsSent = 0;
 
-    // Send 5 initial pings quickly (every 250ms), then steady state every 1.5s
+    // Send 8 initial pings quickly (every 200ms), then steady state every 1.5s
     void sendPing() {
       if (_speakerSocket == null) return;
       final t0 = clock.localNowMicros;
-      final ping = PartyMessage(
+      final ping = PartyMessage.create(
         type: PartyMessageType.ping,
+        sessionId: _sessionId,
+        clockEpochId: clock.clockEpochId,
         payload: {'t0': t0},
       );
       _speakerSocket?.add(ping.serialize());
       pingsSent++;
     }
 
-    _clockSyncTimer = Timer.periodic(const Duration(milliseconds: 250), (timer) {
+    _clockSyncTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) {
       if (role.value != PartyRole.speaker) {
         timer.cancel();
         return;
       }
       sendPing();
-      if (pingsSent >= 5) {
+      if (pingsSent >= 8) {
         timer.cancel();
         _clockSyncTimer = Timer.periodic(
           const Duration(milliseconds: 1500),
@@ -925,12 +1000,17 @@ class PartySyncService {
       const Duration(milliseconds: 1500),
       (_) {
         if (_speakerSocket == null || role.value != PartyRole.speaker) return;
-        final statusMsg = PartyMessage(
+        final statusMsg = PartyMessage.create(
           type: PartyMessageType.status,
+          sessionId: _sessionId,
+          clockEpochId: clock.clockEpochId,
           payload: {
             'driftMs': lastMeasuredDriftMs,
             'rttMs': clock.rttMs,
+            'clockUncertaintyMs': clock.uncertaintyMs,
+            'reanchorCount': reanchorCount,
             'status': audioHandler.audioPlayer.playing ? 'playing' : 'paused',
+            'playbackState': audioHandler.audioPlayer.playing ? 'playing' : 'paused',
           },
         );
         _speakerSocket?.add(statusMsg.serialize());
@@ -946,12 +1026,21 @@ class PartySyncService {
   Future<void> leaveParty() async {
     if (isHost) {
       _broadcastToSpeakers(
-        const PartyMessage(type: PartyMessageType.roomClosed),
+        PartyMessage.create(
+          type: PartyMessageType.roomClosed,
+          sessionId: _sessionId,
+          clockEpochId: _clockEpochId,
+          revision: ++_revision,
+        ),
       );
     } else if (isSpeaker) {
       try {
         _speakerSocket?.add(
-          const PartyMessage(type: PartyMessageType.leave).serialize(),
+          PartyMessage.create(
+            type: PartyMessageType.leave,
+            sessionId: _sessionId,
+            clockEpochId: clock.clockEpochId,
+          ).serialize(),
         );
       } catch (_) {}
     }
@@ -1005,6 +1094,9 @@ class PartySyncService {
     currentRoom.value = null;
     _currentHostSong = null;
     _isHostPlaying = false;
+    _sessionId = '';
+    _clockEpochId = '';
+    _revision = 0;
   }
 
   Future<String?> _findLocalIp() async {
