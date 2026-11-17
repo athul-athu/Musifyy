@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart' show logger;
@@ -201,30 +202,359 @@ class _ImportSpotifyPlaylistPageState extends State<ImportSpotifyPlaylistPage> {
     addSongsInCustomPlaylist(context, playlistId, foundSongs);
     setState(() => _isImporting = false);
 
-    final resultText = rateLimited
-        ? '${context.l10n!.spotifyPlaylistImportFailed}\n${context.l10n!.spotifyPlaylistImportResult(foundSongs.length, rows.length)}'
-        : context.l10n!.spotifyPlaylistImportResult(
-            foundSongs.length,
-            rows.length,
-          );
     if (missingRows.isNotEmpty) {
       final missingText = missingRows
           .map((row) => '${row.title} - ${row.artist}')
           .join('\n');
       await Clipboard.setData(ClipboardData(text: missingText));
-      if (mounted) {
-        showToastWithButton(
-          context,
-          '$resultText\n${context.l10n!.spotifyPlaylistMissingSongs}',
-          context.l10n!.copy,
-          () => Clipboard.setData(ClipboardData(text: missingText)),
-          duration: const Duration(seconds: 8),
-          icon: FluentIcons.warning_24_regular,
-        );
-      }
-    } else {
-      showToast(context, resultText);
     }
+
+    if (mounted) {
+      await _showImportResultDialog(
+        context: context,
+        playlistName: playlistName,
+        playlistId: playlistId,
+        foundCount: foundSongs.length,
+        totalCount: rows.length,
+        missingRows: missingRows,
+        rateLimited: rateLimited,
+      );
+    }
+  }
+
+  Future<void> _showImportResultDialog({
+    required BuildContext context,
+    required String playlistName,
+    required String playlistId,
+    required int foundCount,
+    required int totalCount,
+    required List<_ImportRow> missingRows,
+    required bool rateLimited,
+  }) async {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isFullSuccess = missingRows.isEmpty && !rateLimited && foundCount > 0;
+    final hasPartialSuccess = foundCount > 0 && missingRows.isNotEmpty;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: colorScheme.surfaceContainerHigh,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          icon: Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: isFullSuccess
+                  ? colorScheme.primaryContainer
+                  : hasPartialSuccess
+                      ? colorScheme.secondaryContainer
+                      : colorScheme.errorContainer,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              isFullSuccess
+                  ? FluentIcons.checkmark_24_filled
+                  : hasPartialSuccess
+                      ? FluentIcons.info_24_filled
+                      : FluentIcons.warning_24_filled,
+              color: isFullSuccess
+                  ? colorScheme.onPrimaryContainer
+                  : hasPartialSuccess
+                      ? colorScheme.onSecondaryContainer
+                      : colorScheme.onErrorContainer,
+              size: 28,
+            ),
+          ),
+          title: Text(
+            isFullSuccess
+                ? 'Playlist Imported!'
+                : hasPartialSuccess
+                    ? 'Import Completed with Notes'
+                    : 'Import Failed',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.w700,
+              color: colorScheme.onSurface,
+            ),
+          ),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        FluentIcons.music_note_2_20_filled,
+                        color: colorScheme.primary,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              playlistName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: colorScheme.onSurface,
+                              ),
+                            ),
+                            Text(
+                              'Saved to your library',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: colorScheme.primaryContainer
+                              .withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              '$foundCount',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                                color: colorScheme.primary,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Imported',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              '$totalCount',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                                color: colorScheme.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'In CSV',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (missingRows.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: colorScheme.errorContainer
+                                .withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                '${missingRows.length}',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  color: colorScheme.error,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Missing',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: colorScheme.error,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                if (missingRows.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Missing tracks (${missingRows.length})',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(6),
+                        onTap: () {
+                          final missingText = missingRows
+                              .map((r) => '${r.title} - ${r.artist}')
+                              .join('\n');
+                          Clipboard.setData(ClipboardData(text: missingText));
+                          showToast(
+                            context,
+                            'Copied missing tracks to clipboard',
+                          );
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 2,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                FluentIcons.copy_16_regular,
+                                size: 14,
+                                color: colorScheme.primary,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Copy',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: colorScheme.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 120),
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color:
+                            colorScheme.outlineVariant.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.all(8),
+                      itemCount: missingRows.length,
+                      separatorBuilder: (_, __) => Divider(
+                        height: 8,
+                        thickness: 0.5,
+                        color:
+                            colorScheme.outlineVariant.withValues(alpha: 0.3),
+                      ),
+                      itemBuilder: (context, idx) {
+                        final r = missingRows[idx];
+                        return Text(
+                          '${r.title} • ${r.artist}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+                if (rateLimited) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    'YouTube search was temporarily rate-limited during the import.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: colorScheme.error,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actionsAlignment: MainAxisAlignment.end,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Close'),
+            ),
+            if (foundCount > 0)
+              FilledButton.icon(
+                icon: const Icon(
+                  FluentIcons.play_circle_20_regular,
+                  size: 18,
+                ),
+                label: const Text('Open Playlist'),
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  context.push('/home/playlist/$playlistId');
+                },
+              ),
+          ],
+        );
+      },
+    );
   }
 
   /// Resolves [rows] in batches and stops when rate limiting is detected.
