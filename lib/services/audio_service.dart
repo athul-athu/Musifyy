@@ -2125,14 +2125,23 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           effectiveDuration > Duration.zero && position > effectiveDuration
               ? effectiveDuration
               : (position < Duration.zero ? Duration.zero : position);
+      final wasPlaying = audioPlayer.playing;
       listeningStatsService.recordListeningSessionProgress(
-        wasPlaying: audioPlayer.playing,
+        wasPlaying: wasPlaying,
       );
-      await audioPlayer.seek(clampedPosition);
-      if (PartySyncService.instance.isHost) {
+      if (PartySyncService.instance.isHost &&
+          PartySyncService.instance.connectedSpeakers.value.isNotEmpty) {
+        // In party mode, pause immediately while seeking so Host does not play ahead of speakers
+        if (wasPlaying) {
+          await audioPlayer.pause();
+        }
+        await audioPlayer.seek(clampedPosition);
         PartySyncService.instance.coordinateHostSeek(
           positionMs: clampedPosition.inMilliseconds,
+          resumePlayback: wasPlaying,
         );
+      } else {
+        await audioPlayer.seek(clampedPosition);
       }
       unawaited(listeningStatsService.flush());
     } catch (e, stackTrace) {

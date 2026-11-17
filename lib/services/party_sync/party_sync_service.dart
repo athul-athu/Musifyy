@@ -58,6 +58,9 @@ class PartySyncService {
   Map? _currentHostSong;
   String? _currentHostStreamUrl;
   bool _isHostPlaying = false;
+  bool _isHostResuming = false;
+  bool _isHostSeeking = false;
+  bool _pendingResumeAfterSeek = false;
   int _lastKnownHostPositionMs = 0;
 
   // Speaker / Client properties
@@ -359,7 +362,31 @@ class PartySyncService {
               speaker!.status = 'ready';
               _updateConnectedSpeakersList();
 
-              if (_hostPrepareTimeoutTimer?.isActive == true) {
+              if (_isHostSeeking && _hostPrepareTimeoutTimer?.isActive == true) {
+                final allReady = _clientSockets.values.every((s) => s.isReady);
+                if (allReady) {
+                  _hostPrepareTimeoutTimer?.cancel();
+                  _isHostSeeking = false;
+                  if (_pendingResumeAfterSeek) {
+                    final leadTimeMs = _calculateSafeLeadTime();
+                    _triggerSynchronizedStart(
+                      positionMs: _lastKnownHostPositionMs,
+                      leadTimeMs: leadTimeMs,
+                    );
+                  }
+                }
+              } else if (_isHostResuming && _hostPrepareTimeoutTimer?.isActive == true) {
+                final allReady = _clientSockets.values.every((s) => s.isReady);
+                if (allReady) {
+                  _hostPrepareTimeoutTimer?.cancel();
+                  _isHostResuming = false;
+                  final leadTimeMs = _calculateSafeLeadTime();
+                  _triggerSynchronizedStart(
+                    positionMs: _lastKnownHostPositionMs,
+                    leadTimeMs: leadTimeMs,
+                  );
+                }
+              } else if (_hostPrepareTimeoutTimer?.isActive == true) {
                 final allReady = _clientSockets.values.every((s) => s.isReady);
                 if (allReady) {
                   _hostPrepareTimeoutTimer?.cancel();
@@ -509,8 +536,11 @@ class PartySyncService {
     );
     _broadcastToSpeakers(msg);
 
-    // Host schedules its own playback at targetHostTimeMs
-    _hostPlayScheduleTimer = Timer(Duration(milliseconds: leadTimeMs), () {
+    // Host schedules its own playback at targetHostTimeMs, compensating for hardware buffer latency
+    final hostHardwareLatencyMs = isMobilePlatform ? 55 : 20;
+    final effectiveHostDelayMs = max(0, leadTimeMs - hostHardwareLatencyMs);
+
+    _hostPlayScheduleTimer = Timer(Duration(milliseconds: effectiveHostDelayMs), () {
       if (isHost && _isHostPlaying) {
         unawaited(audioHandler.audioPlayer.play());
         for (final s in _clientSockets.values) {
@@ -523,7 +553,7 @@ class PartySyncService {
     });
   }
 
-  /// Coordinates a synchronized play/resume command for both Host and all connected Speakers.
+  /// Coordinates a synchronized play/resume command with a two-phase readiness handshake.
   void coordinateHostPlay({
     required int positionMs,
     int? leadTimeMs,
@@ -540,11 +570,43 @@ class PartySyncService {
       return;
     }
 
-    final effectiveLeadTime = leadTimeMs ?? _calculateSafeLeadTime();
-    _triggerSynchronizedStart(
-      positionMs: positionMs,
-      leadTimeMs: effectiveLeadTime,
+    _hostPlayScheduleTimer?.cancel();
+    _hostPrepareTimeoutTimer?.cancel();
+    _isHostResuming = true;
+    _isHostSeeking = false;
+
+    // Reset readiness on speakers
+    for (final s in _clientSockets.values) {
+      s
+        ..isReady = false
+        ..status = 'buffering';
+    }
+    _updateConnectedSpeakersList();
+
+    // Broadcast prepare-resume handshake probe to all speakers
+    final probe = PartyMessage.create(
+      type: PartyMessageType.reanchor,
+      sessionId: _sessionId,
+      clockEpochId: _clockEpochId,
+      revision: ++_revision,
+      payload: {
+        'positionMs': positionMs,
+        'action': 'prepareResume',
+      },
     );
+    _broadcastToSpeakers(probe);
+
+    // Safety fallback: If any speaker drops or delays beyond 2500ms, start anyway
+    _hostPrepareTimeoutTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (_isHostResuming && _isHostPlaying) {
+        _isHostResuming = false;
+        final effectiveLeadTime = leadTimeMs ?? _calculateSafeLeadTime();
+        _triggerSynchronizedStart(
+          positionMs: positionMs,
+          leadTimeMs: effectiveLeadTime,
+        );
+      }
+    });
   }
 
   /// Coordinates synchronized start of a new song on Host and all Speakers.
@@ -585,6 +647,9 @@ class PartySyncService {
   void coordinateHostPause({required int positionMs}) {
     if (!isHost) return;
     _isHostPlaying = false;
+    _isHostResuming = false;
+    _isHostSeeking = false;
+    _pendingResumeAfterSeek = false;
     _lastKnownHostPositionMs = positionMs;
     _hostPlayScheduleTimer?.cancel();
     _hostPrepareTimeoutTimer?.cancel();
@@ -599,22 +664,45 @@ class PartySyncService {
       sessionId: _sessionId,
       clockEpochId: _clockEpochId,
       revision: ++_revision,
-      payload: {'positionMs': positionMs},
+      payload: {
+        'positionMs': positionMs,
+        'hostTimeMs': clock.localNowMs,
+      },
     );
     _broadcastToSpeakers(msg);
   }
 
-  /// Coordinates synchronized seek on Host and all Speakers.
+  /// Coordinates synchronized seek on Host and all Speakers with two-phase handshake.
   void coordinateHostSeek({
     required int positionMs,
+    bool resumePlayback = true,
     int? leadTimeMs,
   }) {
     if (!isHost) return;
     _lastKnownHostPositionMs = positionMs;
     _hostPlayScheduleTimer?.cancel();
+    _hostPrepareTimeoutTimer?.cancel();
 
-    final effectiveLeadTime = leadTimeMs ?? _calculateSafeLeadTime();
-    final targetHostTimeMs = clock.localNowMs + effectiveLeadTime;
+    if (_clientSockets.isEmpty) {
+      if (resumePlayback) {
+        unawaited(audioHandler.audioPlayer.play());
+      }
+      return;
+    }
+
+    _isHostSeeking = true;
+    _pendingResumeAfterSeek = resumePlayback;
+    _isHostResuming = false;
+
+    // Reset readiness on speakers
+    for (final s in _clientSockets.values) {
+      s
+        ..isReady = false
+        ..status = 'buffering';
+    }
+    _updateConnectedSpeakersList();
+
+    // Broadcast seek prepare command to all speakers
     final msg = PartyMessage.create(
       type: PartyMessageType.seek,
       sessionId: _sessionId,
@@ -622,18 +710,25 @@ class PartySyncService {
       revision: ++_revision,
       payload: {
         'positionMs': positionMs,
-        'targetHostTimeMs': targetHostTimeMs,
+        'requiresAck': true,
+        'resumePlayback': resumePlayback,
       },
     );
     _broadcastToSpeakers(msg);
 
-    if (_isHostPlaying) {
-      _hostPlayScheduleTimer = Timer(Duration(milliseconds: effectiveLeadTime), () {
-        if (isHost && _isHostPlaying) {
-          unawaited(audioHandler.audioPlayer.play());
+    // Timeout safety fallback: if any speaker takes longer than 3500ms, proceed anyway
+    _hostPrepareTimeoutTimer = Timer(const Duration(milliseconds: 3500), () {
+      if (_isHostSeeking) {
+        _isHostSeeking = false;
+        if (_pendingResumeAfterSeek) {
+          final effectiveLeadTime = leadTimeMs ?? _calculateSafeLeadTime();
+          _triggerSynchronizedStart(
+            positionMs: positionMs,
+            leadTimeMs: effectiveLeadTime,
+          );
         }
-      });
-    }
+      }
+    });
   }
 
   // ===========================================================================
@@ -912,6 +1007,41 @@ class PartySyncService {
             });
             break;
 
+          case PartyMessageType.reanchor:
+            final positionMs =
+                (message.payload['positionMs'] as num?)?.toInt() ?? 0;
+            _speakerPlayScheduleTimer?.cancel();
+            try {
+              await audioHandler.audioPlayer.pause();
+            } catch (_) {}
+            if (positionMs > 0 &&
+                (audioHandler.audioPlayer.position.inMilliseconds - positionMs)
+                        .abs() >
+                    50) {
+              unawaited(
+                audioHandler.audioPlayer
+                    .seek(Duration(milliseconds: positionMs)),
+              );
+            }
+            _driftController?.onPlaybackPaused(positionMs: positionMs);
+
+            // Acknowledge prepareResume probe so Host knows speaker is ready
+            final resumeAck = PartyMessage.create(
+              type: PartyMessageType.ready,
+              sessionId: _sessionId,
+              clockEpochId: clock.clockEpochId,
+              payload: {
+                'status': 'ready',
+                'isReady': true,
+                'positionMs': positionMs,
+                'ackType': 'resume',
+              },
+            );
+            try {
+              _speakerSocket?.add(resumeAck.serialize());
+            } catch (_) {}
+            break;
+
           case PartyMessageType.pause:
             final positionMs =
                 (message.payload['positionMs'] as num?)?.toInt() ?? 0;
@@ -927,6 +1057,9 @@ class PartySyncService {
               );
             }
             _driftController?.onPlaybackPaused(positionMs: positionMs);
+
+            // Re-sync clock while paused to achieve millisecond precision
+            _startClockSyncBurst();
 
             final pauseAck = PartyMessage.create(
               type: PartyMessageType.status,
@@ -951,56 +1084,66 @@ class PartySyncService {
 
             _speakerPlayScheduleTimer?.cancel();
 
-            // Pre-seek immediately while paused/resuming
+            // Pause immediately while seeking so no audio plays from old position
+            try {
+              await audioHandler.audioPlayer.pause();
+            } catch (_) {}
+            _driftController?.onPlaybackPaused(positionMs: positionMs);
+
+            // Pre-seek to target position
             unawaited(
               audioHandler.audioPlayer.seek(Duration(milliseconds: positionMs)),
             );
 
-            final seekAck = PartyMessage.create(
-              type: PartyMessageType.status,
+            // Send "OK" (ready) acknowledgement back to Host immediately after seek
+            final seekReadyAck = PartyMessage.create(
+              type: PartyMessageType.ready,
               sessionId: _sessionId,
               clockEpochId: clock.clockEpochId,
               payload: {
                 'status': 'ready',
                 'isReady': true,
                 'positionMs': positionMs,
+                'ackType': 'seek',
               },
             );
             try {
-              _speakerSocket?.add(seekAck.serialize());
+              _speakerSocket?.add(seekReadyAck.serialize());
             } catch (_) {}
 
-            final rawDelay = clock.delayUntilHostTime(targetHostTimeMs);
-            final hardwareLatencyMs = isMobilePlatform ? 55 : 20;
-            final effectiveDelayMs = max(
-              0,
-              rawDelay.inMilliseconds -
-                  hardwareLatencyMs +
-                  _userCalibrationOffsetMs,
-            );
+            if (targetHostTimeMs > 0) {
+              final rawDelay = clock.delayUntilHostTime(targetHostTimeMs);
+              final hardwareLatencyMs = isMobilePlatform ? 55 : 20;
+              final effectiveDelayMs = max(
+                0,
+                rawDelay.inMilliseconds -
+                    hardwareLatencyMs +
+                    _userCalibrationOffsetMs,
+              );
 
-            _speakerPlayScheduleTimer = Timer(Duration(milliseconds: effectiveDelayMs), () async {
-              if (role.value != PartyRole.speaker) return;
-              try {
-                await audioHandler.audioPlayer.play();
-                _driftController?.onPlaybackScheduled(
-                  startPositionMs: positionMs,
-                  targetHostTimeMs: targetHostTimeMs,
-                );
-                final playingMsg = PartyMessage.create(
-                  type: PartyMessageType.status,
-                  sessionId: _sessionId,
-                  clockEpochId: clock.clockEpochId,
-                  payload: {
-                    'status': 'playing',
-                    'playbackState': 'playing',
-                  },
-                );
+              _speakerPlayScheduleTimer = Timer(Duration(milliseconds: effectiveDelayMs), () async {
+                if (role.value != PartyRole.speaker) return;
                 try {
-                  _speakerSocket?.add(playingMsg.serialize());
+                  await audioHandler.audioPlayer.play();
+                  _driftController?.onPlaybackScheduled(
+                    startPositionMs: positionMs,
+                    targetHostTimeMs: targetHostTimeMs,
+                  );
+                  final playingMsg = PartyMessage.create(
+                    type: PartyMessageType.status,
+                    sessionId: _sessionId,
+                    clockEpochId: clock.clockEpochId,
+                    payload: {
+                      'status': 'playing',
+                      'playbackState': 'playing',
+                    },
+                  );
+                  try {
+                    _speakerSocket?.add(playingMsg.serialize());
+                  } catch (_) {}
                 } catch (_) {}
-              } catch (_) {}
-            });
+              });
+            }
             break;
 
           case PartyMessageType.roomClosed:
@@ -1145,6 +1288,31 @@ class PartySyncService {
     }
   }
 
+  void _startClockSyncBurst() {
+    var count = 0;
+    Timer.periodic(const Duration(milliseconds: 80), (timer) {
+      if (_speakerSocket == null ||
+          role.value != PartyRole.speaker ||
+          count >= 5) {
+        timer.cancel();
+        return;
+      }
+      count++;
+      final t0 = clock.localNowMicros;
+      final ping = PartyMessage.create(
+        type: PartyMessageType.ping,
+        sessionId: _sessionId,
+        clockEpochId: clock.clockEpochId,
+        payload: {'t0': t0},
+      );
+      try {
+        _speakerSocket?.add(ping.serialize());
+      } catch (_) {
+        timer.cancel();
+      }
+    });
+  }
+
   void _startClockSyncLoop() {
     _clockSyncTimer?.cancel();
     var pingsSent = 0;
@@ -1281,6 +1449,9 @@ class PartySyncService {
     currentRoom.value = null;
     _currentHostSong = null;
     _isHostPlaying = false;
+    _isHostResuming = false;
+    _isHostSeeking = false;
+    _pendingResumeAfterSeek = false;
     _sessionId = '';
     _clockEpochId = '';
     _revision = 0;

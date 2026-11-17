@@ -39,6 +39,14 @@ void main() {
           if (msg.type == PartyMessageType.welcome && !welcomeCompleter.isCompleted) {
             welcomeCompleter.complete(msg);
           }
+          if (msg.type == PartyMessageType.reanchor || msg.type == PartyMessageType.seek) {
+            clientSocket.add(
+              const PartyMessage(
+                type: PartyMessageType.ready,
+                payload: {'status': 'ready', 'isReady': true},
+              ).serialize(),
+            );
+          }
         }
       });
 
