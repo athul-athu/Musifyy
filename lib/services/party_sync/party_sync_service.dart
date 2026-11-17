@@ -43,6 +43,21 @@ class PartySyncService {
       ValueNotifier([]);
   final ValueNotifier<PartyRoomInfo?> currentRoom = ValueNotifier(null);
 
+  /// Jukebox control permission mode (DJ mode or Collaborative Jukebox).
+  final ValueNotifier<PartyJukeboxMode> jukeboxMode =
+      ValueNotifier(PartyJukeboxMode.collaborative);
+
+  /// Synchronized party queue with requester info and votes.
+  final ValueNotifier<List<PartyQueueItem>> partyQueue = ValueNotifier([]);
+
+  /// Device ID for speaker (generated once per session).
+  final String speakerDeviceId = PartyMessage.generateId();
+
+  final Map<String, PartyQueueItem> _queueItemMetadata = {};
+  StreamSubscription<List<Map>>? _hostQueueSubscription;
+  StreamSubscription<MediaItem?>? _hostMediaItemSubscription;
+  bool _isReorderingQueue = false;
+
   final PartyClockService clock = PartyClockService();
   PartyDriftController? _driftController;
 
@@ -101,6 +116,15 @@ class PartySyncService {
     if (isAndroidPlatform) return 'Musify (Android)';
     if (isIosPlatform) return 'Musify (iOS)';
     return 'Musify (${Platform.localHostname})';
+  }
+
+  bool get _isAudioHandlerAvailable {
+    try {
+      audioHandler.toString();
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   String? get _currentSongTitle {
@@ -163,6 +187,17 @@ class PartySyncService {
       role.value = PartyRole.host;
       state.value = PartyState.hosting;
       connectedSpeakers.value = [];
+
+      _queueItemMetadata.clear();
+      if (_isAudioHandlerAvailable) {
+        _syncHostPartyQueue(audioHandler.currentQueueList);
+        unawaited(_hostQueueSubscription?.cancel());
+        _hostQueueSubscription =
+            audioHandler.queueAsMapStream.listen(_syncHostPartyQueue);
+        unawaited(_hostMediaItemSubscription?.cancel());
+        _hostMediaItemSubscription =
+            audioHandler.mediaItem.listen(_updateHostCurrentPlayingItem);
+      }
 
       _hostServer!.listen(_handleHostHttpRequest);
 
@@ -323,9 +358,23 @@ class PartySyncService {
                     : _currentPositionMs,
                 'sessionId': _sessionId,
                 'clockEpochId': _clockEpochId,
+                'jukeboxMode': jukeboxMode.value.name,
+                'queue': partyQueue.value.map((e) => e.toJson()).toList(),
               },
             );
             socket.add(welcome.serialize());
+
+            // Send immediate queue update to new speaker
+            final queueMsg = PartyMessage.create(
+              type: PartyMessageType.queueUpdate,
+              sessionId: _sessionId,
+              revision: ++_revision,
+              payload: {
+                'items': partyQueue.value.map((item) => item.toJson()).toList(),
+                'jukeboxMode': jukeboxMode.value.name,
+              },
+            );
+            socket.add(queueMsg.serialize());
 
             // If a song is currently playing on the host, command the new speaker to prepare & sync
             if (_currentHostSong != null) {
@@ -443,6 +492,31 @@ class PartySyncService {
                   message.payload['playbackState'] as String? ?? 'playing';
               speaker!.lastHeartbeatMs = DateTime.now().millisecondsSinceEpoch;
               _updateConnectedSpeakersList();
+            }
+            break;
+
+          case PartyMessageType.requestSong:
+            final song = (message.payload['song'] as Map<dynamic, dynamic>?)
+                ?.cast<String, dynamic>();
+            final requestedBy = message.payload['requestedBy'] as String? ??
+                (speaker?.name ?? 'Guest');
+            final requesterId = message.payload['requesterId'] as String? ??
+                (speaker?.id ?? '');
+            if (song != null) {
+              unawaited(handleSongRequest(
+                songData: song,
+                requestedBy: requestedBy,
+                requesterId: requesterId,
+              ));
+            }
+            break;
+
+          case PartyMessageType.voteSong:
+            final ytid = message.payload['ytid'] as String? ?? '';
+            final voterId = message.payload['voterId'] as String? ??
+                (speaker?.id ?? '');
+            if (ytid.isNotEmpty && voterId.isNotEmpty) {
+              _applyVote(voterId, ytid);
             }
             break;
 
@@ -617,6 +691,14 @@ class PartySyncService {
     _isHostPlaying = true;
     _lastKnownHostPositionMs = 0;
 
+    final currentYtid = (song['ytid'] ?? song['id'] ?? '').toString();
+    if (partyQueue.value.isNotEmpty) {
+      partyQueue.value = partyQueue.value.map((item) {
+        return item.copyWith(isPlaying: item.ytid == currentYtid);
+      }).toList();
+      _broadcastQueueUpdate();
+    }
+
     // Reset readiness on speakers and mark as loading
     for (final s in _clientSockets.values) {
       s
@@ -729,6 +811,292 @@ class PartySyncService {
         }
       }
     });
+  }
+
+  // ===========================================================================
+  // COLLABORATIVE JUKEBOX & QUEUE METHODS
+  // ===========================================================================
+
+  /// Toggles between DJ Mode (host controls queue) and Collaborative Jukebox.
+  void setJukeboxMode(PartyJukeboxMode mode) {
+    if (!isHost) return;
+    jukeboxMode.value = mode;
+    final msg = PartyMessage.create(
+      type: PartyMessageType.partyModeChange,
+      sessionId: _sessionId,
+      revision: ++_revision,
+      payload: {'jukeboxMode': mode.name},
+    );
+    _broadcastToSpeakers(msg);
+    _broadcastQueueUpdate();
+  }
+
+  /// Broadcasts the current party queue to all connected speaker devices.
+  void _broadcastQueueUpdate() {
+    if (!isHost) return;
+    final msg = PartyMessage.create(
+      type: PartyMessageType.queueUpdate,
+      sessionId: _sessionId,
+      revision: ++_revision,
+      payload: {
+        'items': partyQueue.value.map((item) => item.toJson()).toList(),
+        'jukeboxMode': jukeboxMode.value.name,
+      },
+    );
+    _broadcastToSpeakers(msg);
+  }
+
+  /// Reconciles host audioHandler queue with partyQueue, preserving metadata & votes.
+  void _syncHostPartyQueue(List<Map> queueList) {
+    if (!isHost || _isReorderingQueue) return;
+    final currentIndex = audioHandler.currentQueueIndex;
+
+    final updated = <PartyQueueItem>[];
+    for (var i = 0; i < queueList.length; i++) {
+      final song = queueList[i];
+      final ytid = (song['ytid'] ?? song['id'] ?? '').toString();
+      final meta = _queueItemMetadata[ytid];
+
+      final item = PartyQueueItem(
+        id: meta?.id ?? ytid,
+        ytid: ytid,
+        title: (song['title'] ?? meta?.title ?? 'Unknown').toString(),
+        artist: (song['artist'] ?? meta?.artist ?? 'Unknown').toString(),
+        artworkUrl: (song['artworkUrl'] ??
+                song['image'] ??
+                song['lowResImage'] ??
+                song['highResImage'] ??
+                meta?.artworkUrl)
+            ?.toString(),
+        requestedBy: meta?.requestedBy ?? 'Host',
+        requesterId: meta?.requesterId ?? 'host',
+        voters: meta?.voters ?? [],
+        isPlaying: i == currentIndex,
+        songData: Map<String, dynamic>.from(song),
+      );
+      _queueItemMetadata[ytid] = item;
+      updated.add(item);
+    }
+
+    final validYtids = queueList
+        .map((s) => (s['ytid'] ?? s['id'] ?? '').toString())
+        .toSet();
+    _queueItemMetadata.removeWhere((key, _) => !validYtids.contains(key));
+
+    partyQueue.value = updated;
+    _broadcastQueueUpdate();
+  }
+
+  /// Updates isPlaying status on the active Party Queue when the track changes.
+  void _updateHostCurrentPlayingItem(MediaItem? currentMedia) {
+    if (!isHost || partyQueue.value.isEmpty) return;
+    final currentYtid = currentMedia?.id ?? '';
+    final updated = partyQueue.value.map((item) {
+      final isPlaying =
+          item.ytid == currentYtid || item.title == currentMedia?.title;
+      if (item.isPlaying != isPlaying) {
+        return item.copyWith(isPlaying: isPlaying);
+      }
+      return item;
+    }).toList();
+    partyQueue.value = updated;
+    _broadcastQueueUpdate();
+  }
+
+  /// Handles a guest song request on the Host.
+  Future<void> handleSongRequest({
+    required Map songData,
+    required String requestedBy,
+    required String requesterId,
+  }) async {
+    if (!isHost) return;
+    if (jukeboxMode.value != PartyJukeboxMode.collaborative) return;
+
+    final ytid = (songData['ytid'] ?? songData['id'] ?? '').toString();
+    if (ytid.isEmpty) return;
+
+    // Check if song already exists in party queue
+    final existingIndex =
+        partyQueue.value.indexWhere((item) => item.ytid == ytid);
+    if (existingIndex != -1) {
+      _applyVote(requesterId, ytid);
+      return;
+    }
+
+    final newItem = PartyQueueItem(
+      id: ytid,
+      ytid: ytid,
+      title: (songData['title'] ?? 'Unknown').toString(),
+      artist: (songData['artist'] ?? 'Unknown').toString(),
+      artworkUrl: (songData['artworkUrl'] ??
+              songData['image'] ??
+              songData['lowResImage'] ??
+              songData['highResImage'])
+          ?.toString(),
+      requestedBy: requestedBy,
+      requesterId: requesterId,
+      voters: [if (requesterId.isNotEmpty) requesterId],
+      songData: Map<String, dynamic>.from(songData),
+    );
+
+    _queueItemMetadata[ytid] = newItem;
+    if (_isAudioHandlerAvailable) {
+      await audioHandler.addToQueue(songData);
+      _syncHostPartyQueue(audioHandler.currentQueueList);
+    } else {
+      partyQueue.value = [...partyQueue.value, newItem];
+      _broadcastQueueUpdate();
+    }
+    _reorderQueueByVotes();
+  }
+
+  /// Toggles an upvote on a queued song by device ID.
+  void _applyVote(String voterId, String ytid) {
+    if (!isHost) return;
+    if (jukeboxMode.value != PartyJukeboxMode.collaborative &&
+        voterId != 'host') {
+      return;
+    }
+
+    final meta = _queueItemMetadata[ytid];
+    if (meta != null) {
+      final voters = List<String>.from(meta.voters);
+      if (voters.contains(voterId)) {
+        voters.remove(voterId);
+      } else {
+        voters.add(voterId);
+      }
+      _queueItemMetadata[ytid] = meta.copyWith(voters: voters);
+    } else {
+      final queueIdx =
+          partyQueue.value.indexWhere((item) => item.ytid == ytid);
+      if (queueIdx != -1) {
+        final item = partyQueue.value[queueIdx];
+        final voters = List<String>.from(item.voters);
+        if (voters.contains(voterId)) {
+          voters.remove(voterId);
+        } else {
+          voters.add(voterId);
+        }
+        _queueItemMetadata[ytid] = item.copyWith(voters: voters);
+      }
+    }
+
+    if (_isAudioHandlerAvailable) {
+      _syncHostPartyQueue(audioHandler.currentQueueList);
+    } else {
+      final queueIdx =
+          partyQueue.value.indexWhere((item) => item.ytid == ytid);
+      if (queueIdx != -1) {
+        final q = List<PartyQueueItem>.from(partyQueue.value);
+        final item = q[queueIdx];
+        final voters = List<String>.from(item.voters);
+        if (voters.contains(voterId)) {
+          voters.remove(voterId);
+        } else {
+          voters.add(voterId);
+        }
+        q[queueIdx] = item.copyWith(voters: voters);
+        partyQueue.value = q;
+      }
+    }
+    _reorderQueueByVotes();
+  }
+
+  /// Re-sorts upcoming queue items by vote count descending and updates audioHandler.
+  void _reorderQueueByVotes() {
+    if (!isHost || partyQueue.value.length < 2) return;
+    final currentIdx =
+        _isAudioHandlerAvailable ? audioHandler.currentQueueIndex : 0;
+    final splitIndex = currentIdx >= 0 ? currentIdx + 1 : 1;
+    if (splitIndex >= partyQueue.value.length) return;
+
+    final played = partyQueue.value.sublist(0, splitIndex);
+    final upcoming = partyQueue.value.sublist(splitIndex)
+      ..sort((a, b) => b.voteCount.compareTo(a.voteCount));
+
+    final targetOrder = [...played, ...upcoming];
+
+    if (_isAudioHandlerAvailable) {
+      _isReorderingQueue = true;
+      try {
+        for (var i = splitIndex; i < targetOrder.length; i++) {
+          final ytid = targetOrder[i].ytid;
+          final currentAudioIdx = audioHandler.currentQueueList.indexWhere(
+            (s) => (s['ytid'] ?? s['id'] ?? '').toString() == ytid,
+          );
+          if (currentAudioIdx != -1 && currentAudioIdx != i) {
+            audioHandler.reorderQueue(currentAudioIdx, i);
+          }
+        }
+      } finally {
+        _isReorderingQueue = false;
+      }
+    }
+
+    partyQueue.value = targetOrder;
+    _broadcastQueueUpdate();
+  }
+
+  /// Allows Host to remove a song from the Party Queue.
+  Future<void> removeSongFromPartyQueue(int index) async {
+    if (!isHost) return;
+    if (index >= 0 && index < partyQueue.value.length) {
+      final ytid = partyQueue.value[index].ytid;
+      _queueItemMetadata.remove(ytid);
+      if (_isAudioHandlerAvailable) {
+        await audioHandler.removeFromQueue(index);
+      } else {
+        final q = List<PartyQueueItem>.from(partyQueue.value)..removeAt(index);
+        partyQueue.value = q;
+        _broadcastQueueUpdate();
+      }
+    }
+  }
+
+  /// Sends a song request to the Host (used by Speakers, or executed locally by Host).
+  void requestSong(Map songData) {
+    if (isHost) {
+      unawaited(handleSongRequest(
+        songData: songData,
+        requestedBy: 'Host',
+        requesterId: 'host',
+      ));
+      return;
+    }
+    if (!isSpeaker || _speakerSocket == null) return;
+    final msg = PartyMessage.create(
+      type: PartyMessageType.requestSong,
+      sessionId: _sessionId,
+      payload: {
+        'song': songData,
+        'requestedBy': deviceName,
+        'requesterId': speakerDeviceId,
+      },
+    );
+    try {
+      _speakerSocket?.add(msg.serialize());
+    } catch (_) {}
+  }
+
+  /// Toggles an upvote for a song (used by Speakers or Host).
+  void toggleVote(String ytid) {
+    if (isHost) {
+      _applyVote('host', ytid);
+      return;
+    }
+    if (!isSpeaker || _speakerSocket == null) return;
+    final msg = PartyMessage.create(
+      type: PartyMessageType.voteSong,
+      sessionId: _sessionId,
+      payload: {
+        'ytid': ytid,
+        'voterId': speakerDeviceId,
+      },
+    );
+    try {
+      _speakerSocket?.add(msg.serialize());
+    } catch (_) {}
   }
 
   // ===========================================================================
@@ -925,6 +1293,20 @@ class PartySyncService {
                 : (message.payload['sessionId'] as String? ?? '');
             if (sess.isNotEmpty) {
               _sessionId = sess;
+            }
+            final welcomeQueue =
+                message.payload['queue'] as List<dynamic>?;
+            if (welcomeQueue != null) {
+              partyQueue.value = welcomeQueue
+                  .map((e) => PartyQueueItem.fromJson(
+                      Map<String, dynamic>.from(e as Map)))
+                  .toList();
+            }
+            final welcomeMode = message.payload['jukeboxMode'] as String?;
+            if (welcomeMode != null) {
+              jukeboxMode.value = welcomeMode == PartyJukeboxMode.djOnly.name
+                  ? PartyJukeboxMode.djOnly
+                  : PartyJukeboxMode.collaborative;
             }
             break;
 
@@ -1143,6 +1525,30 @@ class PartySyncService {
                   } catch (_) {}
                 } catch (_) {}
               });
+            }
+            break;
+
+          case PartyMessageType.queueUpdate:
+            final rawItems =
+                (message.payload['items'] as List<dynamic>?) ?? [];
+            partyQueue.value = rawItems
+                .map((e) => PartyQueueItem.fromJson(
+                    Map<String, dynamic>.from(e as Map)))
+                .toList();
+            final modeName = message.payload['jukeboxMode'] as String?;
+            if (modeName != null) {
+              jukeboxMode.value = modeName == PartyJukeboxMode.djOnly.name
+                  ? PartyJukeboxMode.djOnly
+                  : PartyJukeboxMode.collaborative;
+            }
+            break;
+
+          case PartyMessageType.partyModeChange:
+            final modeName = message.payload['jukeboxMode'] as String?;
+            if (modeName != null) {
+              jukeboxMode.value = modeName == PartyJukeboxMode.djOnly.name
+                  ? PartyJukeboxMode.djOnly
+                  : PartyJukeboxMode.collaborative;
             }
             break;
 
@@ -1442,6 +1848,13 @@ class PartySyncService {
         await _multicastLock.releaseMulticastLock();
       } catch (_) {}
     }
+
+    await _hostQueueSubscription?.cancel();
+    _hostQueueSubscription = null;
+    await _hostMediaItemSubscription?.cancel();
+    _hostMediaItemSubscription = null;
+    _queueItemMetadata.clear();
+    partyQueue.value = [];
 
     role.value = PartyRole.none;
     state.value = PartyState.idle;

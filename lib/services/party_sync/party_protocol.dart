@@ -25,7 +25,110 @@ enum PartyMessageType {
   deviceInfo,
   leave,
   roomClosed,
+  queueUpdate,
+  requestSong,
+  voteSong,
+  partyModeChange,
   error,
+}
+
+/// Jukebox control permission mode on the Host.
+enum PartyJukeboxMode {
+  /// Only the Host can add, remove, and reorder songs.
+  djOnly,
+
+  /// Connected guest speakers can search, request songs, and upvote the queue.
+  collaborative,
+}
+
+/// A queued party track with guest requester info and collaborative upvotes.
+class PartyQueueItem {
+  PartyQueueItem({
+    required this.id,
+    required this.ytid,
+    required this.title,
+    required this.artist,
+    this.artworkUrl,
+    this.requestedBy = 'Host',
+    this.requesterId = '',
+    List<String>? voters,
+    this.isPlaying = false,
+    this.songData = const {},
+  }) : voters = voters ?? [];
+
+  factory PartyQueueItem.fromJson(Map<String, dynamic> json) {
+    return PartyQueueItem(
+      id: json['id'] as String? ?? '',
+      ytid: json['ytid'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      artist: json['artist'] as String? ?? '',
+      artworkUrl: json['artworkUrl'] as String?,
+      requestedBy: json['requestedBy'] as String? ?? 'Host',
+      requesterId: json['requesterId'] as String? ?? '',
+      voters: (json['voters'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          [],
+      isPlaying: json['isPlaying'] as bool? ?? false,
+      songData: (json['songData'] as Map<dynamic, dynamic>?)
+              ?.cast<String, dynamic>() ??
+          const {},
+    );
+  }
+
+  final String id;
+  final String ytid;
+  final String title;
+  final String artist;
+  final String? artworkUrl;
+  final String requestedBy;
+  final String requesterId;
+  final List<String> voters;
+  final bool isPlaying;
+  final Map<String, dynamic> songData;
+
+  int get voteCount => voters.length;
+
+  bool hasVoted(String deviceId) => voters.contains(deviceId);
+
+  PartyQueueItem copyWith({
+    String? id,
+    String? ytid,
+    String? title,
+    String? artist,
+    String? artworkUrl,
+    String? requestedBy,
+    String? requesterId,
+    List<String>? voters,
+    bool? isPlaying,
+    Map<String, dynamic>? songData,
+  }) {
+    return PartyQueueItem(
+      id: id ?? this.id,
+      ytid: ytid ?? this.ytid,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
+      artworkUrl: artworkUrl ?? this.artworkUrl,
+      requestedBy: requestedBy ?? this.requestedBy,
+      requesterId: requesterId ?? this.requesterId,
+      voters: voters ?? List.from(this.voters),
+      isPlaying: isPlaying ?? this.isPlaying,
+      songData: songData ?? this.songData,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'ytid': ytid,
+        'title': title,
+        'artist': artist,
+        if (artworkUrl != null) 'artworkUrl': artworkUrl,
+        'requestedBy': requestedBy,
+        'requesterId': requesterId,
+        'voters': voters,
+        'isPlaying': isPlaying,
+        'songData': songData,
+      };
 }
 
 /// A structured versioned message sent over the Party WebSocket connection.

@@ -128,6 +128,35 @@ void main() {
       expect(decoded.calibrationOffsetMs, -15);
     });
 
+    test('PartyQueueItem roundtrip with votes and requester info', () {
+      final item = PartyQueueItem(
+        id: 'queue-1',
+        ytid: 'yt-123',
+        title: 'Starboy',
+        artist: 'The Weeknd',
+        artworkUrl: 'https://img.youtube.com/vi/yt-123/hqdefault.jpg',
+        requestedBy: "Athul's Pixel",
+        requesterId: 'device-456',
+        voters: ['device-456', 'device-789'],
+        songData: {'ytid': 'yt-123', 'title': 'Starboy'},
+      );
+
+      final json = item.toJson();
+      final decoded = PartyQueueItem.fromJson(json);
+
+      expect(decoded.id, 'queue-1');
+      expect(decoded.ytid, 'yt-123');
+      expect(decoded.title, 'Starboy');
+      expect(decoded.artist, 'The Weeknd');
+      expect(decoded.artworkUrl, 'https://img.youtube.com/vi/yt-123/hqdefault.jpg');
+      expect(decoded.requestedBy, "Athul's Pixel");
+      expect(decoded.requesterId, 'device-456');
+      expect(decoded.voteCount, 2);
+      expect(decoded.hasVoted('device-456'), isTrue);
+      expect(decoded.hasVoted('device-999'), isFalse);
+      expect(decoded.isPlaying, isFalse);
+    });
+
     test('message ID generation is non-empty and unique', () {
       final id1 = PartyMessage.generateId();
       final id2 = PartyMessage.generateId();

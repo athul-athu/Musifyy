@@ -201,6 +201,7 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
 
   Stream<PlaybackState> get playbackStateStream => _playbackStateStream;
   Stream<List<Map>> get queueAsMapStream => _queueMapStream.stream;
+  List<Map> get currentQueueList => List.unmodifiable(_queueList);
   int get currentQueueIndex => _currentQueueIndex;
   bool get _hasCurrentQueueIndex =>
       _currentQueueIndex >= 0 && _currentQueueIndex < _queueList.length;

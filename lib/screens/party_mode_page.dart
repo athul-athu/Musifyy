@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
@@ -5,10 +7,13 @@ import 'package:material_ui/material_ui.dart';
 import 'package:musify/constants/app_constants.dart';
 import 'package:musify/extensions/l10n.dart';
 import 'package:musify/main.dart';
+import 'package:musify/services/common_services.dart';
 import 'package:musify/services/party_sync/party_protocol.dart';
 import 'package:musify/services/party_sync/party_sync_service.dart';
 import 'package:musify/utilities/app_utils.dart';
+import 'package:musify/utilities/flutter_bottom_sheet.dart';
 import 'package:musify/utilities/flutter_toast.dart';
+import 'package:musify/utilities/mediaitem.dart';
 import 'package:musify/utilities/platform_utils.dart';
 import 'package:musify/widgets/custom_bar.dart';
 import 'package:musify/widgets/mini_player_bottom_space.dart';
@@ -441,6 +446,102 @@ class _PartyModePageState extends State<PartyModePage> {
           },
         ),
         const SizedBox(height: 20),
+        const SectionHeader(
+          title: 'Party Jukebox',
+          icon: FluentIcons.music_note_2_24_filled,
+        ),
+        ValueListenableBuilder<PartyJukeboxMode>(
+          valueListenable: _service.jukeboxMode,
+          builder: (context, mode, _) {
+            final isCollaborative = mode == PartyJukeboxMode.collaborative;
+            return Material(
+              color: theme.colorScheme.surfaceContainerLow,
+              borderRadius: commonCustomBarRadius,
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(
+                      isCollaborative
+                          ? FluentIcons.people_community_24_filled
+                          : FluentIcons.person_24_filled,
+                      color: isCollaborative
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.secondary,
+                      size: 28,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isCollaborative
+                                ? 'Collaborative Jukebox'
+                                : 'DJ Mode (Host Only)',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            isCollaborative
+                                ? 'Guests can search songs, request, & vote'
+                                : 'Only host controls playback & queue',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: isCollaborative,
+                      onChanged: (val) {
+                        _service.setJukeboxMode(
+                          val
+                              ? PartyJukeboxMode.collaborative
+                              : PartyJukeboxMode.djOnly,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 20),
+        ValueListenableBuilder<List<PartyQueueItem>>(
+          valueListenable: _service.partyQueue,
+          builder: (context, queue, _) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SectionHeader(
+                  title: 'Party Queue (${queue.length})',
+                  icon: FluentIcons.list_24_filled,
+                ),
+                if (queue.isEmpty)
+                  CustomBar(
+                    'Queue is empty',
+                    FluentIcons.music_note_2_24_regular,
+                    description:
+                        'Play a track in Musify or allow guests to request songs!',
+                    borderRadius: commonCustomBarRadius,
+                  )
+                else
+                  for (var i = 0; i < queue.length; i++)
+                    _buildHostQueueTile(context, queue[i], i, queue.length),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 20),
         const MiniPlayerBottomSpace(),
       ],
     );
@@ -617,6 +718,111 @@ class _PartyModePageState extends State<PartyModePage> {
           ),
         ),
         const SizedBox(height: 20),
+        ValueListenableBuilder<PartyJukeboxMode>(
+          valueListenable: _service.jukeboxMode,
+          builder: (context, mode, _) {
+            final isCollaborative = mode == PartyJukeboxMode.collaborative;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SectionHeader(
+                  title: isCollaborative ? 'Party Jukebox' : 'Party Queue',
+                  icon: FluentIcons.music_note_2_24_filled,
+                ),
+                if (isCollaborative)
+                  Material(
+                    color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+                    borderRadius: commonCustomBarRadius,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(
+                        children: [
+                          Icon(
+                            FluentIcons.sparkle_24_filled,
+                            color: theme.colorScheme.primary,
+                            size: 26,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Collaborative Jukebox',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: theme.colorScheme.onSurface,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Request tracks & vote to play them next!',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                            ),
+                            icon: const Icon(FluentIcons.add_16_regular, size: 16),
+                            label: const Text('Request'),
+                            onPressed: () => _showSongRequestSheet(context),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  CustomBar(
+                    'DJ Mode Active',
+                    FluentIcons.lock_closed_24_regular,
+                    description:
+                        'Only the Host controls the queue. View upcoming songs below.',
+                    borderRadius: commonCustomBarRadius,
+                  ),
+                const SizedBox(height: 16),
+                ValueListenableBuilder<List<PartyQueueItem>>(
+                  valueListenable: _service.partyQueue,
+                  builder: (context, queue, _) {
+                    if (queue.isEmpty) {
+                      return CustomBar(
+                        'Party queue is empty',
+                        FluentIcons.music_note_2_24_regular,
+                        description: isCollaborative
+                            ? 'Tap "Request" to add the first song to the party!'
+                            : 'Host has not queued any songs yet.',
+                        borderRadius: commonCustomBarRadius,
+                      );
+                    }
+
+                    return Column(
+                      children: [
+                        for (var i = 0; i < queue.length; i++)
+                          _buildSpeakerQueueTile(
+                            context,
+                            queue[i],
+                            i,
+                            queue.length,
+                            isCollaborative,
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 20),
         const MiniPlayerBottomSpace(),
       ],
     );
@@ -696,6 +902,544 @@ class _PartyModePageState extends State<PartyModePage> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildHostQueueTile(
+    BuildContext context,
+    PartyQueueItem item,
+    int index,
+    int totalCount,
+  ) {
+    final theme = Theme.of(context);
+    final hasVoted = item.hasVoted('host');
+
+    return Material(
+      color: theme.colorScheme.surfaceContainerLow,
+      borderRadius: getItemBorderRadius(index, totalCount),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            SongArtworkWidget(
+              size: 46,
+              metadata: mapToMediaItem(item.songData),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: item.isPlaying
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    item.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      if (item.isPlaying)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            'Playing Now',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: theme.colorScheme.onPrimaryContainer,
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            item.requestedBy == 'Host'
+                                ? 'Added by Host'
+                                : 'Requested by ${item.requestedBy}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (!item.isPlaying) ...[
+              FilledButton.tonal(
+                style: FilledButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: const Size(40, 32),
+                  backgroundColor: hasVoted
+                      ? theme.colorScheme.primaryContainer
+                      : theme.colorScheme.surfaceContainerHighest,
+                ),
+                onPressed: () => _service.toggleVote(item.ytid),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      hasVoted
+                          ? FluentIcons.thumb_like_16_filled
+                          : FluentIcons.thumb_like_16_regular,
+                      size: 14,
+                      color: hasVoted
+                          ? theme.colorScheme.onPrimaryContainer
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${item.voteCount}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: hasVoted
+                            ? theme.colorScheme.onPrimaryContainer
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                icon: const Icon(FluentIcons.delete_16_regular, size: 18),
+                tooltip: 'Remove',
+                color: theme.colorScheme.error,
+                onPressed: () => _service.removeSongFromPartyQueue(index),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSpeakerQueueTile(
+    BuildContext context,
+    PartyQueueItem item,
+    int index,
+    int totalCount,
+    bool isCollaborative,
+  ) {
+    final theme = Theme.of(context);
+    final hasVoted = item.hasVoted(_service.speakerDeviceId);
+
+    return Material(
+      color: theme.colorScheme.surfaceContainerLow,
+      borderRadius: getItemBorderRadius(index, totalCount),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            SongArtworkWidget(
+              size: 46,
+              metadata: mapToMediaItem(item.songData),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: item.isPlaying
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    item.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      if (item.isPlaying)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            'Playing Now',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: theme.colorScheme.onPrimaryContainer,
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            item.requestedBy == 'Host'
+                                ? 'Added by Host'
+                                : 'Requested by ${item.requestedBy}',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (!item.isPlaying && isCollaborative)
+              FilledButton.tonal(
+                style: FilledButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  minimumSize: const Size(44, 34),
+                  backgroundColor: hasVoted
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.surfaceContainerHighest,
+                ),
+                onPressed: () => _service.toggleVote(item.ytid),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      hasVoted
+                          ? FluentIcons.thumb_like_16_filled
+                          : FluentIcons.thumb_like_16_regular,
+                      size: 15,
+                      color: hasVoted
+                          ? theme.colorScheme.onPrimary
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${item.voteCount}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: hasVoted
+                            ? theme.colorScheme.onPrimary
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSongRequestSheet(BuildContext context) {
+    showCustomBottomSheet<void>(
+      context,
+      const _PartySongRequestSheet(),
+    );
+  }
+}
+
+class _PartySongRequestSheet extends StatefulWidget {
+  const _PartySongRequestSheet();
+
+  @override
+  State<_PartySongRequestSheet> createState() => _PartySongRequestSheetState();
+}
+
+class _PartySongRequestSheetState extends State<_PartySongRequestSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _debounceTimer;
+  bool _isLoading = false;
+  List<dynamic> _searchResults = [];
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String query) {
+    _debounceTimer?.cancel();
+    if (query.trim().isEmpty) {
+      setState(() {
+        _isLoading = false;
+        _searchResults = [];
+      });
+      return;
+    }
+
+    _debounceTimer = Timer(const Duration(milliseconds: 350), () async {
+      setState(() => _isLoading = true);
+      try {
+        final results = await fetchSongsList(query.trim());
+        if (!mounted) return;
+        setState(() {
+          _searchResults = results;
+          _isLoading = false;
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final size = MediaQuery.sizeOf(context);
+
+    return SizedBox(
+      height: size.height * 0.72,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Request a Song',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(FluentIcons.dismiss_20_regular),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _searchController,
+            autofocus: true,
+            onChanged: _onSearchChanged,
+            decoration: InputDecoration(
+              hintText: 'Search title, artist, or YouTube URL...',
+              prefixIcon: const Icon(FluentIcons.search_24_regular),
+              suffixIcon: _searchController.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(FluentIcons.dismiss_16_regular),
+                      onPressed: () {
+                        _searchController.clear();
+                        _onSearchChanged('');
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: theme.colorScheme.surfaceContainerHigh,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 36),
+              child: Center(
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+            )
+          else if (_searchResults.isEmpty &&
+              _searchController.text.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 36),
+              child: Column(
+                children: [
+                  Icon(
+                    FluentIcons.search_visual_24_regular,
+                    size: 40,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'No songs found for "${_searchController.text.trim()}"',
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else if (_searchResults.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Column(
+                children: [
+                  Icon(
+                    FluentIcons.music_note_2_24_regular,
+                    size: 48,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Search for music to add to the party jukebox!',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Expanded(
+              child: ListView.separated(
+                itemCount: _searchResults.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 6),
+                itemBuilder: (context, index) {
+                  final song = _searchResults[index];
+                  final songMap = song is Map ? song : <dynamic, dynamic>{};
+                  final title = songMap['title']?.toString() ?? 'Unknown';
+                  final artist = songMap['artist']?.toString() ?? 'Unknown';
+
+                  return Material(
+                    color: theme.colorScheme.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        children: [
+                          SongArtworkWidget(
+                            size: 44,
+                            metadata: mapToMediaItem(songMap),
+                            borderRadius: 8,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: theme.colorScheme.onSurface,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  artist,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton.tonal(
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                            ),
+                            onPressed: () {
+                              PartySyncService.instance.requestSong(songMap);
+                              Navigator.pop(context);
+                              showToast(
+                                context,
+                                'Requested "$title" for the party!',
+                              );
+                            },
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(FluentIcons.add_16_regular, size: 14),
+                                SizedBox(width: 4),
+                                Text('Request'),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
