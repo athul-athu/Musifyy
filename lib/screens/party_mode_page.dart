@@ -375,6 +375,7 @@ class _PartyModePageState extends State<PartyModePage> {
                         final status = speakers[i].status.toLowerCase();
                         final isPlaying = status == 'playing';
                         final isReady = status == 'ready';
+                        final isPaused = status == 'paused';
                         final isLoading = status == 'loading' || status == 'buffering';
 
                         final Color badgeBg;
@@ -392,6 +393,11 @@ class _PartyModePageState extends State<PartyModePage> {
                           badgeFg = theme.colorScheme.onSecondaryContainer;
                           badgeIcon = FluentIcons.checkmark_16_regular;
                           badgeText = 'Ready';
+                        } else if (isPaused) {
+                          badgeBg = theme.colorScheme.surfaceContainerHighest;
+                          badgeFg = theme.colorScheme.onSurfaceVariant;
+                          badgeIcon = FluentIcons.pause_16_regular;
+                          badgeText = 'Paused';
                         } else {
                           badgeBg = theme.colorScheme.surfaceContainerHighest;
                           badgeFg = theme.colorScheme.onSurfaceVariant;

@@ -66,6 +66,7 @@ class PartySyncService {
   StreamSubscription<RawSocketEvent>? _discoverySubscription;
   Timer? _clockSyncTimer;
   Timer? _speakerStatusTimer;
+  Timer? _speakerPlayScheduleTimer;
   int _userCalibrationOffsetMs = 0;
 
   String _sessionId = '';
@@ -407,6 +408,8 @@ class PartySyncService {
                 speaker!.status = incomingStatus;
                 if (incomingStatus == 'loading' || incomingStatus == 'buffering') {
                   speaker!.isReady = false;
+                } else if (incomingStatus == 'ready' || incomingStatus == 'paused') {
+                  speaker!.isReady = true;
                 }
               }
               speaker!.playbackState =
@@ -537,7 +540,7 @@ class PartySyncService {
       return;
     }
 
-    final effectiveLeadTime = leadTimeMs ?? _calculateSafeLeadTime(baseMs: 600);
+    final effectiveLeadTime = leadTimeMs ?? _calculateSafeLeadTime();
     _triggerSynchronizedStart(
       positionMs: positionMs,
       leadTimeMs: effectiveLeadTime,
@@ -586,6 +589,11 @@ class PartySyncService {
     _hostPlayScheduleTimer?.cancel();
     _hostPrepareTimeoutTimer?.cancel();
 
+    for (final s in _clientSockets.values) {
+      s.status = 'paused';
+    }
+    _updateConnectedSpeakersList();
+
     final msg = PartyMessage.create(
       type: PartyMessageType.pause,
       sessionId: _sessionId,
@@ -605,7 +613,7 @@ class PartySyncService {
     _lastKnownHostPositionMs = positionMs;
     _hostPlayScheduleTimer?.cancel();
 
-    final effectiveLeadTime = leadTimeMs ?? _calculateSafeLeadTime(baseMs: 600);
+    final effectiveLeadTime = leadTimeMs ?? _calculateSafeLeadTime();
     final targetHostTimeMs = clock.localNowMs + effectiveLeadTime;
     final msg = PartyMessage.create(
       type: PartyMessageType.seek,
@@ -839,7 +847,7 @@ class PartySyncService {
             final targetHostTimeMs =
                 (message.payload['targetHostTimeMs'] as num?)?.toInt() ?? 0;
 
-            final rawDelay = clock.delayUntilHostTime(targetHostTimeMs);
+            _speakerPlayScheduleTimer?.cancel();
 
             // Pre-seek immediately while paused so no seek lag occurs when the timer fires
             if (positionMs > 0 &&
@@ -852,6 +860,23 @@ class PartySyncService {
               );
             }
 
+            // Acknowledge receipt of play command
+            final playAck = PartyMessage.create(
+              type: PartyMessageType.status,
+              sessionId: _sessionId,
+              clockEpochId: clock.clockEpochId,
+              payload: {
+                'status': 'ready',
+                'isReady': true,
+                'positionMs': positionMs,
+              },
+            );
+            try {
+              _speakerSocket?.add(playAck.serialize());
+            } catch (_) {}
+
+            final rawDelay = clock.delayUntilHostTime(targetHostTimeMs);
+
             // Compensate for hardware acoustic output latency (AudioTrack buffer fill)
             final hardwareLatencyMs = isMobilePlatform ? 55 : 20;
             final effectiveDelayMs = max(
@@ -861,7 +886,7 @@ class PartySyncService {
                   _userCalibrationOffsetMs,
             );
 
-            Timer(Duration(milliseconds: effectiveDelayMs), () async {
+            _speakerPlayScheduleTimer = Timer(Duration(milliseconds: effectiveDelayMs), () async {
               if (role.value != PartyRole.speaker) return;
               try {
                 await audioHandler.audioPlayer.play();
@@ -869,6 +894,18 @@ class PartySyncService {
                   startPositionMs: positionMs,
                   targetHostTimeMs: targetHostTimeMs,
                 );
+                final playingMsg = PartyMessage.create(
+                  type: PartyMessageType.status,
+                  sessionId: _sessionId,
+                  clockEpochId: clock.clockEpochId,
+                  payload: {
+                    'status': 'playing',
+                    'playbackState': 'playing',
+                  },
+                );
+                try {
+                  _speakerSocket?.add(playingMsg.serialize());
+                } catch (_) {}
               } catch (e) {
                 logger.log('Error executing synchronized play: $e');
               }
@@ -878,8 +915,32 @@ class PartySyncService {
           case PartyMessageType.pause:
             final positionMs =
                 (message.payload['positionMs'] as num?)?.toInt() ?? 0;
+            _speakerPlayScheduleTimer?.cancel();
             await audioHandler.audioPlayer.pause();
+            if (positionMs > 0 &&
+                (audioHandler.audioPlayer.position.inMilliseconds - positionMs)
+                        .abs() >
+                    100) {
+              unawaited(
+                audioHandler.audioPlayer
+                    .seek(Duration(milliseconds: positionMs)),
+              );
+            }
             _driftController?.onPlaybackPaused(positionMs: positionMs);
+
+            final pauseAck = PartyMessage.create(
+              type: PartyMessageType.status,
+              sessionId: _sessionId,
+              clockEpochId: clock.clockEpochId,
+              payload: {
+                'status': 'paused',
+                'isReady': true,
+                'positionMs': positionMs,
+              },
+            );
+            try {
+              _speakerSocket?.add(pauseAck.serialize());
+            } catch (_) {}
             break;
 
           case PartyMessageType.seek:
@@ -887,13 +948,29 @@ class PartySyncService {
                 (message.payload['positionMs'] as num?)?.toInt() ?? 0;
             final targetHostTimeMs =
                 (message.payload['targetHostTimeMs'] as num?)?.toInt() ?? 0;
-            final rawDelay = clock.delayUntilHostTime(targetHostTimeMs);
 
-            // Pre-seek immediately while paused
+            _speakerPlayScheduleTimer?.cancel();
+
+            // Pre-seek immediately while paused/resuming
             unawaited(
               audioHandler.audioPlayer.seek(Duration(milliseconds: positionMs)),
             );
 
+            final seekAck = PartyMessage.create(
+              type: PartyMessageType.status,
+              sessionId: _sessionId,
+              clockEpochId: clock.clockEpochId,
+              payload: {
+                'status': 'ready',
+                'isReady': true,
+                'positionMs': positionMs,
+              },
+            );
+            try {
+              _speakerSocket?.add(seekAck.serialize());
+            } catch (_) {}
+
+            final rawDelay = clock.delayUntilHostTime(targetHostTimeMs);
             final hardwareLatencyMs = isMobilePlatform ? 55 : 20;
             final effectiveDelayMs = max(
               0,
@@ -902,7 +979,7 @@ class PartySyncService {
                   _userCalibrationOffsetMs,
             );
 
-            Timer(Duration(milliseconds: effectiveDelayMs), () async {
+            _speakerPlayScheduleTimer = Timer(Duration(milliseconds: effectiveDelayMs), () async {
               if (role.value != PartyRole.speaker) return;
               try {
                 await audioHandler.audioPlayer.play();
@@ -910,6 +987,18 @@ class PartySyncService {
                   startPositionMs: positionMs,
                   targetHostTimeMs: targetHostTimeMs,
                 );
+                final playingMsg = PartyMessage.create(
+                  type: PartyMessageType.status,
+                  sessionId: _sessionId,
+                  clockEpochId: clock.clockEpochId,
+                  payload: {
+                    'status': 'playing',
+                    'playbackState': 'playing',
+                  },
+                );
+                try {
+                  _speakerSocket?.add(playingMsg.serialize());
+                } catch (_) {}
               } catch (_) {}
             });
             break;
@@ -1163,6 +1252,8 @@ class PartySyncService {
     _clockSyncTimer = null;
     _speakerStatusTimer?.cancel();
     _speakerStatusTimer = null;
+    _speakerPlayScheduleTimer?.cancel();
+    _speakerPlayScheduleTimer = null;
 
     try {
       await _speakerSocket?.close();
