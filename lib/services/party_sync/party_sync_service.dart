@@ -390,7 +390,7 @@ class PartySyncService {
                 final allReady = _clientSockets.values.every((s) => s.isReady);
                 if (allReady) {
                   _hostPrepareTimeoutTimer?.cancel();
-                  final leadTimeMs = _calculateSafeLeadTime(baseMs: 1000);
+                  final leadTimeMs = _calculateSafeLeadTime(baseMs: 2000);
                   _triggerSynchronizedStart(positionMs: 0, leadTimeMs: leadTimeMs);
                 }
               } else if (_isHostPlaying) {
@@ -480,13 +480,13 @@ class PartySyncService {
     }
   }
 
-  int _calculateSafeLeadTime({int baseMs = 800}) {
+  int _calculateSafeLeadTime({int baseMs = 1800}) {
     if (_clientSockets.isEmpty) return baseMs;
     var maxRtt = 0;
     for (final s in _clientSockets.values) {
       if (s.rttMs > maxRtt) maxRtt = s.rttMs;
     }
-    return max(baseMs, (maxRtt * 2) + 400);
+    return max(baseMs, (maxRtt * 2) + 1200);
   }
 
   void _sendPrepareToSocket(
@@ -519,7 +519,7 @@ class PartySyncService {
 
   void _triggerSynchronizedStart({
     required int positionMs,
-    int leadTimeMs = 800,
+    int leadTimeMs = 1800,
   }) {
     _hostPlayScheduleTimer?.cancel();
     final targetHostTimeMs = clock.localNowMs + leadTimeMs;
@@ -638,7 +638,7 @@ class PartySyncService {
     // Wait up to 8000ms for speakers to prepare, then start synchronized play
     _hostPrepareTimeoutTimer?.cancel();
     _hostPrepareTimeoutTimer = Timer(const Duration(milliseconds: 8000), () {
-      final leadTimeMs = _calculateSafeLeadTime(baseMs: 1000);
+      final leadTimeMs = _calculateSafeLeadTime(baseMs: 2000);
       _triggerSynchronizedStart(positionMs: 0, leadTimeMs: leadTimeMs);
     });
   }
