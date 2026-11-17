@@ -4,7 +4,7 @@ homepage: https://github.com/athul-athu/Musifyy
 repository: https://github.com/athul-athu/Musifyy
 
 publish_to: 'none'
-version: 1.0.2+3# run update.ps1 or 'dart run scripts/update_version.dart' after changing the version
+version: 1.0.1+3 # run update.ps1 or 'dart run scripts/update_version.dart' after changing the version
 
 environment:
   sdk: '>=3.13.0 <4.0.0'
