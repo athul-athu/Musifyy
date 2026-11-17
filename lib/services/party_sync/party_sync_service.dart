@@ -56,6 +56,7 @@ class PartySyncService {
   Timer? _hostPrepareTimeoutTimer;
   final Map<WebSocket, ConnectedSpeaker> _clientSockets = {};
   Map? _currentHostSong;
+  String? _currentHostStreamUrl;
   bool _isHostPlaying = false;
   int _lastKnownHostPositionMs = 0;
 
@@ -324,7 +325,11 @@ class PartySyncService {
 
             // If a song is currently playing on the host, command the new speaker to prepare & sync
             if (_currentHostSong != null) {
-              _sendPrepareToSocket(socket, _currentHostSong!);
+              _sendPrepareToSocket(
+                socket,
+                _currentHostSong!,
+                overrideStreamUrl: _currentHostStreamUrl,
+              );
             }
             break;
 
@@ -350,22 +355,22 @@ class PartySyncService {
           case PartyMessageType.ready:
             if (speaker != null) {
               speaker!.isReady = true;
+              speaker!.status = 'ready';
               _updateConnectedSpeakersList();
 
               if (_hostPrepareTimeoutTimer?.isActive == true) {
                 final allReady = _clientSockets.values.every((s) => s.isReady);
                 if (allReady) {
                   _hostPrepareTimeoutTimer?.cancel();
-                  _triggerSynchronizedStart(positionMs: 0, leadTimeMs: 400);
+                  final leadTimeMs = _calculateSafeLeadTime(baseMs: 1000);
+                  _triggerSynchronizedStart(positionMs: 0, leadTimeMs: leadTimeMs);
                 }
               } else if (_isHostPlaying) {
-                // Speaker joined while Host is ALREADY playing:
+                // Speaker joined or finished buffering while Host is ALREADY playing:
                 // Send synchronized play command only once per playback session
                 if (speaker!.status != 'playing') {
-                  speaker!.status = 'playing';
-                  _updateConnectedSpeakersList();
                   final currentPos = _currentPositionMs;
-                  const leadTimeMs = 400;
+                  final leadTimeMs = _calculateSafeLeadTime();
                   final targetHostTimeMs = clock.localNowMs + leadTimeMs;
                   final playMsg = PartyMessage.create(
                     type: PartyMessageType.play,
@@ -380,6 +385,8 @@ class PartySyncService {
                   try {
                     socket.add(playMsg.serialize());
                   } catch (_) {}
+                  speaker!.status = 'playing';
+                  _updateConnectedSpeakersList();
                 }
               }
             }
@@ -395,8 +402,13 @@ class PartySyncService {
                   (message.payload['clockUncertaintyMs'] as num?)?.toInt() ?? 0;
               speaker!.reanchorCount =
                   (message.payload['reanchorCount'] as num?)?.toInt() ?? 0;
-              speaker!.status =
-                  message.payload['status'] as String? ?? 'playing';
+              final incomingStatus = message.payload['status'] as String?;
+              if (incomingStatus != null && incomingStatus.isNotEmpty) {
+                speaker!.status = incomingStatus;
+                if (incomingStatus == 'loading' || incomingStatus == 'buffering') {
+                  speaker!.isReady = false;
+                }
+              }
               speaker!.playbackState =
                   message.payload['playbackState'] as String? ?? 'playing';
               speaker!.lastHeartbeatMs = DateTime.now().millisecondsSinceEpoch;
@@ -438,7 +450,20 @@ class PartySyncService {
     }
   }
 
-  void _sendPrepareToSocket(WebSocket socket, Map song) {
+  int _calculateSafeLeadTime({int baseMs = 800}) {
+    if (_clientSockets.isEmpty) return baseMs;
+    var maxRtt = 0;
+    for (final s in _clientSockets.values) {
+      if (s.rttMs > maxRtt) maxRtt = s.rttMs;
+    }
+    return max(baseMs, (maxRtt * 2) + 400);
+  }
+
+  void _sendPrepareToSocket(
+    WebSocket socket,
+    Map song, {
+    String? overrideStreamUrl,
+  }) {
     final hostPort = _hostServer?.port ?? 0;
     final hostIp = currentRoom.value?.ip ?? '127.0.0.1';
     final isOffline = song['isOffline'] == true;
@@ -453,16 +478,18 @@ class PartySyncService {
         'song': song,
         'streamUrl': isOffline
             ? 'http://$hostIp:$hostPort/party/audio/$ytid'
-            : null,
+            : (overrideStreamUrl ?? _currentHostStreamUrl),
         'isHostStream': isOffline,
       },
     );
-    socket.add(prepareMsg.serialize());
+    try {
+      socket.add(prepareMsg.serialize());
+    } catch (_) {}
   }
 
   void _triggerSynchronizedStart({
     required int positionMs,
-    int leadTimeMs = 350,
+    int leadTimeMs = 800,
   }) {
     _hostPlayScheduleTimer?.cancel();
     final targetHostTimeMs = clock.localNowMs + leadTimeMs;
@@ -483,6 +510,12 @@ class PartySyncService {
     _hostPlayScheduleTimer = Timer(Duration(milliseconds: leadTimeMs), () {
       if (isHost && _isHostPlaying) {
         unawaited(audioHandler.audioPlayer.play());
+        for (final s in _clientSockets.values) {
+          if (s.isReady) {
+            s.status = 'playing';
+          }
+        }
+        _updateConnectedSpeakersList();
       }
     });
   }
@@ -490,7 +523,7 @@ class PartySyncService {
   /// Coordinates a synchronized play/resume command for both Host and all connected Speakers.
   void coordinateHostPlay({
     required int positionMs,
-    int leadTimeMs = 300,
+    int? leadTimeMs,
   }) {
     if (!isHost) {
       unawaited(audioHandler.audioPlayer.play());
@@ -504,27 +537,32 @@ class PartySyncService {
       return;
     }
 
-    _triggerSynchronizedStart(positionMs: positionMs, leadTimeMs: leadTimeMs);
+    final effectiveLeadTime = leadTimeMs ?? _calculateSafeLeadTime(baseMs: 600);
+    _triggerSynchronizedStart(
+      positionMs: positionMs,
+      leadTimeMs: effectiveLeadTime,
+    );
   }
 
   /// Coordinates synchronized start of a new song on Host and all Speakers.
-  void coordinateHostSongStart(Map song) {
+  void coordinateHostSongStart(Map song, {String? streamUrl}) {
     if (!isHost) return;
     _currentHostSong = song;
+    _currentHostStreamUrl = streamUrl;
     _isHostPlaying = true;
     _lastKnownHostPositionMs = 0;
 
-    // Reset readiness on speakers
+    // Reset readiness on speakers and mark as loading
     for (final s in _clientSockets.values) {
       s
         ..isReady = false
-        ..status = 'buffering';
+        ..status = 'loading';
     }
     _updateConnectedSpeakersList();
 
     // Broadcast prepare to all speakers
     for (final socket in _clientSockets.keys) {
-      _sendPrepareToSocket(socket, song);
+      _sendPrepareToSocket(socket, song, overrideStreamUrl: streamUrl);
     }
 
     if (_clientSockets.isEmpty) {
@@ -532,10 +570,11 @@ class PartySyncService {
       return;
     }
 
-    // Wait up to 2000ms for speakers to prepare, then start synchronized play
+    // Wait up to 8000ms for speakers to prepare, then start synchronized play
     _hostPrepareTimeoutTimer?.cancel();
-    _hostPrepareTimeoutTimer = Timer(const Duration(milliseconds: 2000), () {
-      _triggerSynchronizedStart(positionMs: 0, leadTimeMs: 400);
+    _hostPrepareTimeoutTimer = Timer(const Duration(milliseconds: 8000), () {
+      final leadTimeMs = _calculateSafeLeadTime(baseMs: 1000);
+      _triggerSynchronizedStart(positionMs: 0, leadTimeMs: leadTimeMs);
     });
   }
 
@@ -560,13 +599,14 @@ class PartySyncService {
   /// Coordinates synchronized seek on Host and all Speakers.
   void coordinateHostSeek({
     required int positionMs,
-    int leadTimeMs = 350,
+    int? leadTimeMs,
   }) {
     if (!isHost) return;
     _lastKnownHostPositionMs = positionMs;
     _hostPlayScheduleTimer?.cancel();
 
-    final targetHostTimeMs = clock.localNowMs + leadTimeMs;
+    final effectiveLeadTime = leadTimeMs ?? _calculateSafeLeadTime(baseMs: 600);
+    final targetHostTimeMs = clock.localNowMs + effectiveLeadTime;
     final msg = PartyMessage.create(
       type: PartyMessageType.seek,
       sessionId: _sessionId,
@@ -580,7 +620,7 @@ class PartySyncService {
     _broadcastToSpeakers(msg);
 
     if (_isHostPlaying) {
-      _hostPlayScheduleTimer = Timer(Duration(milliseconds: leadTimeMs), () {
+      _hostPlayScheduleTimer = Timer(Duration(milliseconds: effectiveLeadTime), () {
         if (isHost && _isHostPlaying) {
           unawaited(audioHandler.audioPlayer.play());
         }
@@ -889,34 +929,65 @@ class PartySyncService {
 
   String? _currentlyPreparedYtid;
   bool _isPreparingSpeakerAudio = false;
+  int _speakerPrepareEpoch = 0;
 
   Future<void> _prepareSpeakerAudio(Map song, {String? overrideUrl}) async {
     final ytid = song['ytid']?.toString();
     if (ytid == null || ytid.isEmpty) return;
 
-    if (_isPreparingSpeakerAudio || _currentlyPreparedYtid == ytid) {
+    if (_currentlyPreparedYtid == ytid && !_isPreparingSpeakerAudio) {
+      final readyMsg = PartyMessage.create(
+        type: PartyMessageType.ready,
+        sessionId: _sessionId,
+        clockEpochId: clock.clockEpochId,
+        payload: {'ytid': ytid},
+      );
+      try {
+        _speakerSocket?.add(readyMsg.serialize());
+      } catch (_) {}
       return;
     }
+
+    final currentEpoch = ++_speakerPrepareEpoch;
     _isPreparingSpeakerAudio = true;
 
     try {
-      // Pause current audio immediately so old track does not keep playing while loading new song
+      // 1. Pause current audio immediately so old track does not keep playing while loading new song
       try {
         await audioHandler.audioPlayer.pause();
       } catch (_) {}
       _driftController?.onPlaybackPaused(positionMs: 0);
 
+      // 2. Immediately notify Host that this speaker is loading the new song
+      final loadingMsg = PartyMessage.create(
+        type: PartyMessageType.status,
+        sessionId: _sessionId,
+        clockEpochId: clock.clockEpochId,
+        payload: {
+          'status': 'loading',
+          'ytid': ytid,
+        },
+      );
+      try {
+        _speakerSocket?.add(loadingMsg.serialize());
+      } catch (_) {}
+
+      if (currentEpoch != _speakerPrepareEpoch) return;
+
+      // 3. Resolve stream URL: try host's overrideUrl first, fall back to direct fetch
       var streamUrl = overrideUrl;
       if (streamUrl == null || streamUrl.isEmpty) {
         streamUrl = await fetchSongStreamUrl(ytid, song['isLive'] ?? false);
       }
+
+      if (currentEpoch != _speakerPrepareEpoch) return;
 
       if (streamUrl == null || streamUrl.isEmpty) {
         logger.log('Could not resolve stream URL for speaker: $ytid');
         return;
       }
 
-      // Update media item in UI so speaker sees title & artwork
+      // 4. Update media item in UI so speaker sees title & artwork
       final mediaItem = MediaItem(
         id: ytid,
         title: song['title']?.toString() ?? 'Party Audio',
@@ -927,12 +998,31 @@ class PartySyncService {
       );
       audioHandler.mediaItem.add(mediaItem);
 
-      // Pre-load audio source in paused state
-      final source = AudioSource.uri(Uri.parse(streamUrl));
-      await audioHandler.audioPlayer.setAudioSource(source);
+      // 5. Pre-load audio source in paused state
+      try {
+        final source = AudioSource.uri(Uri.parse(streamUrl));
+        await audioHandler.audioPlayer.setAudioSource(source);
+      } catch (err) {
+        if (overrideUrl != null && overrideUrl.isNotEmpty) {
+          logger.log('Host stream URL failed on speaker, falling back to direct resolve: $err');
+          streamUrl = await fetchSongStreamUrl(ytid, song['isLive'] ?? false);
+          if (streamUrl != null &&
+              streamUrl.isNotEmpty &&
+              currentEpoch == _speakerPrepareEpoch) {
+            final fallbackSource = AudioSource.uri(Uri.parse(streamUrl));
+            await audioHandler.audioPlayer.setAudioSource(fallbackSource);
+          } else {
+            rethrow;
+          }
+        } else {
+          rethrow;
+        }
+      }
+
+      if (currentEpoch != _speakerPrepareEpoch) return;
       _currentlyPreparedYtid = ytid;
 
-      // Pre-buffer: wait until audio player has primed its decoder buffer
+      // 6. Pre-buffer: wait until audio player has primed its decoder buffer
       try {
         await audioHandler.audioPlayer.playerStateStream
             .firstWhere(
@@ -940,23 +1030,29 @@ class PartySyncService {
                   s.processingState == ProcessingState.ready ||
                   s.processingState == ProcessingState.buffering,
             )
-            .timeout(const Duration(milliseconds: 2000));
+            .timeout(const Duration(milliseconds: 6000));
       } catch (_) {}
 
-      // Notify Host that this speaker is pre-buffered and ready
+      if (currentEpoch != _speakerPrepareEpoch) return;
+
+      // 7. Notify Host that this speaker is pre-buffered and ready!
       final readyMsg = PartyMessage.create(
         type: PartyMessageType.ready,
         sessionId: _sessionId,
         clockEpochId: clock.clockEpochId,
         payload: {'ytid': ytid},
       );
-      _speakerSocket?.add(readyMsg.serialize());
+      try {
+        _speakerSocket?.add(readyMsg.serialize());
+      } catch (_) {}
     } catch (e) {
       if (e is! PlatformException || e.code != 'abort') {
         logger.log('Could not prepare speaker audio: $e');
       }
     } finally {
-      _isPreparingSpeakerAudio = false;
+      if (currentEpoch == _speakerPrepareEpoch) {
+        _isPreparingSpeakerAudio = false;
+      }
     }
   }
 

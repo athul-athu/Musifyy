@@ -2448,7 +2448,10 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
         } catch (_) {}
       }
       if (PartySyncService.instance.isHost) {
-        PartySyncService.instance.coordinateHostSongStart(song);
+        PartySyncService.instance.coordinateHostSongStart(
+          song,
+          streamUrl: songUrl,
+        );
       } else {
         unawaited(
           audioPlayer.play().catchError((Object e, StackTrace stackTrace) {

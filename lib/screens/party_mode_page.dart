@@ -371,48 +371,64 @@ class _PartyModePageState extends State<PartyModePage> {
                       description:
                           '${speakers[i].ip} • Ping: ${speakers[i].rttMs}ms • Drift: ${speakers[i].driftMs}ms${speakers[i].clockUncertaintyMs > 0 ? ' (±${speakers[i].clockUncertaintyMs}ms)' : ''}',
                       borderRadius: getItemBorderRadius(i, speakers.length),
-                      trailing: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: speakers[i].status == 'playing' ||
-                                  speakers[i].status == 'ready'
-                              ? theme.colorScheme.primaryContainer
-                              : theme.colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              speakers[i].status == 'playing'
-                                  ? FluentIcons.speaker_2_16_filled
-                                  : FluentIcons.checkmark_16_regular,
-                              size: 13,
-                              color: speakers[i].status == 'playing' ||
-                                      speakers[i].status == 'ready'
-                                  ? theme.colorScheme.onPrimaryContainer
-                                  : theme.colorScheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              speakers[i].status == 'playing'
-                                  ? 'Playing'
-                                  : 'Ready',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: speakers[i].status == 'playing' ||
-                                        speakers[i].status == 'ready'
-                                    ? theme.colorScheme.onPrimaryContainer
-                                    : theme.colorScheme.onSurfaceVariant,
+                      trailing: () {
+                        final status = speakers[i].status.toLowerCase();
+                        final isPlaying = status == 'playing';
+                        final isReady = status == 'ready';
+                        final isLoading = status == 'loading' || status == 'buffering';
+
+                        final Color badgeBg;
+                        final Color badgeFg;
+                        final IconData badgeIcon;
+                        final String badgeText;
+
+                        if (isPlaying) {
+                          badgeBg = theme.colorScheme.primaryContainer;
+                          badgeFg = theme.colorScheme.onPrimaryContainer;
+                          badgeIcon = FluentIcons.speaker_2_16_filled;
+                          badgeText = 'Playing';
+                        } else if (isReady) {
+                          badgeBg = theme.colorScheme.secondaryContainer;
+                          badgeFg = theme.colorScheme.onSecondaryContainer;
+                          badgeIcon = FluentIcons.checkmark_16_regular;
+                          badgeText = 'Ready';
+                        } else {
+                          badgeBg = theme.colorScheme.surfaceContainerHighest;
+                          badgeFg = theme.colorScheme.onSurfaceVariant;
+                          badgeIcon = FluentIcons.arrow_sync_16_regular;
+                          badgeText = isLoading ? 'Buffering...' : 'Connecting...';
+                        }
+
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: badgeBg,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                badgeIcon,
+                                size: 13,
+                                color: badgeFg,
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
+                              const SizedBox(width: 4),
+                              Text(
+                                badgeText,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: badgeFg,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }(),
                     ),
               ],
             );
