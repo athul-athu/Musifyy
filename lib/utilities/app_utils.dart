@@ -107,8 +107,8 @@ AudioOnlyStreamInfo? selectAudioOnlyStreamForQuality(
   final List<AudioOnlyStreamInfo> selectionPool;
   if (compatibleSources.isNotEmpty) {
     selectionPool = List<AudioOnlyStreamInfo>.from(compatibleSources);
-  } else if (isApplePlatform) {
-    // On iOS/macOS, fallback only to streams with mp4/m4a container, avoiding WebM entirely
+  } else if (isApplePlatform || isWindowsPlatform) {
+    // On iOS/macOS and Windows, fallback only to streams with mp4/m4a container, avoiding WebM entirely
     selectionPool = availableSources
         .where((s) {
           final c = s.container.name.toLowerCase();
@@ -151,9 +151,10 @@ int _audioOnlyCompatibilityScore(AudioOnlyStreamInfo stream) {
     return 0;
   }
 
-  // Apple's AVPlayer (iOS / macOS) only natively supports AAC (mp4a), MP3, ALAC.
-  // WebM container and Opus/Vorbis codecs are NOT supported by native AVPlayer.
-  if (isApplePlatform) {
+  // Apple's AVPlayer (iOS / macOS) and Windows Media Foundation (just_audio_windows)
+  // only natively support AAC (mp4a), MP3, ALAC.
+  // WebM container and Opus/Vorbis codecs are NOT supported natively by AVPlayer or standard Windows MF.
+  if (isApplePlatform || isWindowsPlatform) {
     if ((codec.contains('mp4a') || codec.contains('aac')) &&
         (container == 'mp4' || container == 'm4a')) {
       return 3;

@@ -687,7 +687,7 @@ AudioOnlyStreamInfo? _getSelectedAudioStream(String songId) {
     return null;
   }
 
-  if (isApplePlatform &&
+  if ((isApplePlatform || isWindowsPlatform) &&
       entry.stream.container.name.toLowerCase() == 'webm') {
     _selectedAudioStreams.remove(key);
     return null;
@@ -774,9 +774,9 @@ Future<String?> fetchSongStreamUrl(String songId, bool isLive) async {
     // Try to get from cache
     final cachedUrl = await _getCachedSongUrl(cacheKey, _cacheDuration);
     if (cachedUrl != null) {
-      if (isApplePlatform &&
+      if ((isApplePlatform || isWindowsPlatform) &&
           (cachedUrl.contains('audio%2Fwebm') || cachedUrl.contains('webm'))) {
-        // Discard cached WebM stream URL on iOS/macOS as native AVPlayer cannot decode it.
+        // Discard cached WebM stream URL on iOS/macOS and Windows as native media engines cannot decode it.
       } else {
         return cachedUrl;
       }

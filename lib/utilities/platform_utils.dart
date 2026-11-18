@@ -19,3 +19,6 @@ bool get isApplePlatform =>
     (defaultTargetPlatform == TargetPlatform.iOS ||
         defaultTargetPlatform == TargetPlatform.macOS);
 
+bool get isWindowsPlatform =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+

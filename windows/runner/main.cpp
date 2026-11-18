@@ -17,6 +17,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
+  // Single-instance check: if Musify is already running, activate its window and exit cleanly
+  HWND existing_window = ::FindWindow(L"FLUTTER_RUNNER_WIN32_WINDOW", L"Musify");
+  if (existing_window != nullptr) {
+    ::ShowWindow(existing_window, SW_RESTORE);
+    ::SetForegroundWindow(existing_window);
+    ::CoUninitialize();
+    return EXIT_SUCCESS;
+  }
+
   flutter::DartProject project(L"data");
 
   std::vector<std::string> command_line_arguments =

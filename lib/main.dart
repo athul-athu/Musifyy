@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:app_links/app_links.dart';
 import 'package:audio_service/audio_service.dart';
@@ -269,27 +270,114 @@ void main() async {
   runApp(const Musify());
 }
 
-Future<void> initialisation() async {
-  try {
+Future<void> _initStorageAndHive() async {
+  if (kIsWeb) {
+    applicationDirPath = '';
     await Hive.initFlutter();
+    return;
+  }
 
-    await Future.wait([
-      Hive.openBox('settings'),
-      Hive.openBox('user'),
-      Hive.openBox('userNoBackup'),
-      Hive.openBox('cache'),
-    ]);
+  final Directory storageDir;
+  if (isDesktopPlatform) {
+    storageDir = await getApplicationSupportDirectory();
+    if (!await storageDir.exists()) {
+      await storageDir.create(recursive: true);
+    }
+    await _migrateLegacyHiveStorage(storageDir);
+  } else {
+    storageDir = await getApplicationDocumentsDirectory();
+  }
 
+  applicationDirPath = storageDir.path;
+  await FilePaths.ensureDirectoriesExist();
+  Hive.init(storageDir.path);
+}
+
+Future<void> _migrateLegacyHiveStorage(Directory targetDir) async {
+  try {
+    final legacyDocDir = await getApplicationDocumentsDirectory();
+    if (legacyDocDir.path == targetDir.path) return;
+
+    const boxNames = ['settings', 'user', 'userNoBackup', 'cache'];
+    for (final boxName in boxNames) {
+      final legacyFile = File('${legacyDocDir.path}/$boxName.hive');
+      final targetFile = File('${targetDir.path}/$boxName.hive');
+
+      if (await legacyFile.exists() && !await targetFile.exists()) {
+        try {
+          await legacyFile.copy(targetFile.path);
+          logger.log('Migrated $boxName.hive to app support directory');
+        } catch (e) {
+          logger.log('Failed to migrate $boxName.hive', error: e);
+        }
+      }
+    }
+  } catch (e, stackTrace) {
+    logger.log(
+      'Error during legacy storage migration',
+      error: e,
+      stackTrace: stackTrace,
+    );
+  }
+}
+
+Future<void> _openBoxes() async {
+  const boxNames = ['settings', 'user', 'userNoBackup', 'cache'];
+  for (final boxName in boxNames) {
+    if (Hive.isBoxOpen(boxName)) continue;
     try {
-      await LocalSyncService.instance.initialise();
+      await Hive.openBox(boxName);
     } catch (e, stackTrace) {
       logger.log(
-        'Local sync could not start',
+        'Error opening Hive box "$boxName", attempting recovery:',
         error: e,
         stackTrace: stackTrace,
       );
+      if (boxName == 'cache') {
+        try {
+          await Hive.deleteBoxFromDisk('cache');
+          await Hive.openBox('cache');
+        } catch (_) {}
+      } else {
+        try {
+          if (applicationDirPath.isNotEmpty) {
+            final lockFile = File('$applicationDirPath/$boxName.lock');
+            if (await lockFile.exists()) {
+              await lockFile.delete();
+            }
+          }
+          await Hive.openBox(boxName);
+        } catch (retryError) {
+          logger.log('Retry failed for Hive box "$boxName": $retryError');
+        }
+      }
     }
+  }
+}
 
+Future<void> initialisation() async {
+  try {
+    await _initStorageAndHive();
+    await _openBoxes();
+  } catch (e, stackTrace) {
+    logger.log(
+      'Storage/Hive Initialization Error',
+      error: e,
+      stackTrace: stackTrace,
+    );
+  }
+
+  try {
+    await LocalSyncService.instance.initialise();
+  } catch (e, stackTrace) {
+    logger.log(
+      'Local sync could not start',
+      error: e,
+      stackTrace: stackTrace,
+    );
+  }
+
+  try {
     audioHandler = await AudioService.init(
       builder: MusifyAudioHandler.new,
       config: const AudioServiceConfig(
@@ -311,36 +399,33 @@ Future<void> initialisation() async {
         },
       ),
     );
-
-    // Init router
-    NavigationManager.instance;
-
-    if (!kIsWeb) {
-      try {
-        // Listen to incoming links while app is running
-        appLinksSubscription = appLinks.uriLinkStream.listen(
-          handleIncomingLink,
-          onError: (err) {
-            logger.log('URI link error:', error: err);
-          },
-        );
-      } on PlatformException {
-        logger.log('Failed to get initial uri');
-      }
-    }
-
-    if (isFdroidBuild && !offlineMode.value) {
-      await fetchAnnouncementOnly();
-    }
   } catch (e, stackTrace) {
-    logger.log('Initialization Error', error: e, stackTrace: stackTrace);
+    logger.log(
+      'AudioService Initialization Error',
+      error: e,
+      stackTrace: stackTrace,
+    );
   }
 
+  // Init router
+  NavigationManager.instance;
+
   if (!kIsWeb) {
-    applicationDirPath = (await getApplicationDocumentsDirectory()).path;
-    await FilePaths.ensureDirectoriesExist();
-  } else {
-    applicationDirPath = '';
+    try {
+      // Listen to incoming links while app is running
+      appLinksSubscription = appLinks.uriLinkStream.listen(
+        handleIncomingLink,
+        onError: (err) {
+          logger.log('URI link error:', error: err);
+        },
+      );
+    } on PlatformException {
+      logger.log('Failed to get initial uri');
+    }
+  }
+
+  if (isFdroidBuild && !offlineMode.value) {
+    await fetchAnnouncementOnly();
   }
 }
 
