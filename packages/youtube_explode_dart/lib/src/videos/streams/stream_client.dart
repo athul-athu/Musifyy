@@ -403,6 +403,10 @@ class StreamClient {
         continue;
       }
 
+      if (stream.url.isEmpty || !url.hasScheme || url.host.isEmpty) {
+        continue;
+      }
+
       if (solver != null && watchPage != null) {
         if (url.queryParameters.containsKey('n')) {
           final nParam = url.queryParameters['n']!;

@@ -38,17 +38,12 @@ class _PartyModePageState extends State<PartyModePage> {
   void initState() {
     super.initState();
     _sliderOffset = _service.calibrationOffsetMs.toDouble();
-    if (!_service.isInParty && !kIsWeb) {
-      _service.startDiscovery();
-    }
     _service.role.addListener(_onRoleChanged);
   }
 
   void _onRoleChanged() {
     if (!mounted) return;
-    if (_service.role.value == PartyRole.none && !kIsWeb) {
-      _service.startDiscovery();
-    }
+    setState(() {});
   }
 
   @override
@@ -56,9 +51,7 @@ class _PartyModePageState extends State<PartyModePage> {
     _service.role.removeListener(_onRoleChanged);
     _ipController.dispose();
     _portController.dispose();
-    if (!_service.isInParty && !kIsWeb) {
-      _service.stopDiscovery();
-    }
+    _service.stopDiscovery();
     super.dispose();
   }
 
@@ -183,45 +176,65 @@ class _PartyModePageState extends State<PartyModePage> {
             },
           ),
         ),
-        ValueListenableBuilder<List<PartyRoomInfo>>(
-          valueListenable: _service.discoveredRooms,
-          builder: (context, rooms, _) {
-            if (rooms.isEmpty) {
-              return CustomBar(
-                'Searching for party rooms...',
-                FluentIcons.wifi_1_24_regular,
-                description: l10n.partyScanningRooms,
-                borderRadius: commonCustomBarRadius,
-                trailing: const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              );
-            }
-
-            return Column(
-              children: [
-                for (var i = 0; i < rooms.length; i++)
-                  CustomBar(
-                    rooms[i].name,
-                    FluentIcons.speaker_2_24_regular,
-                    description:
-                        'Host: ${rooms[i].hostName} (${rooms[i].ip}:${rooms[i].port})'
-                        '${rooms[i].currentSongTitle != null ? ' • Playing: ${rooms[i].currentSongTitle}' : ''}',
-                    borderRadius: getItemBorderRadius(i, rooms.length),
+        ValueListenableBuilder<PartyState>(
+          valueListenable: _service.state,
+          builder: (context, partyState, _) {
+            return ValueListenableBuilder<List<PartyRoomInfo>>(
+              valueListenable: _service.discoveredRooms,
+              builder: (context, rooms, _) {
+                if (rooms.isEmpty) {
+                  if (partyState == PartyState.discovering) {
+                    return CustomBar(
+                      'Searching for party rooms...',
+                      FluentIcons.wifi_1_24_regular,
+                      description: l10n.partyScanningRooms,
+                      borderRadius: commonCustomBarRadius,
+                      trailing: const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    );
+                  }
+                  return CustomBar(
+                    'Scan for Party Rooms',
+                    FluentIcons.wifi_1_24_regular,
+                    description: 'Search for active Party Hosts on your local Wi-Fi network.',
+                    borderRadius: commonCustomBarRadius,
                     trailing: FilledButton.tonal(
-                      onPressed: () async {
-                        final success = await _service.joinRoom(rooms[i]);
-                        if (!context.mounted) return;
-                        if (!success) {
-                          showToast(context, 'Could not join ${rooms[i].name}. Host port may have changed.');
-                        }
+                      onPressed: () {
+                        _service.startDiscovery();
+                        showToast(context, 'Scanning for party rooms...');
                       },
-                      child: Text(l10n.partyJoinButton),
+                      child: const Text('Scan'),
                     ),
-                  ),
-              ],
+                  );
+                }
+
+                return Column(
+                  children: [
+                    for (var i = 0; i < rooms.length; i++)
+                      CustomBar(
+                        rooms[i].name,
+                        FluentIcons.speaker_2_24_regular,
+                        description:
+                            'Host: ${rooms[i].hostName} (${rooms[i].ip}:${rooms[i].port})'
+                            '${rooms[i].currentSongTitle != null ? ' • Playing: ${rooms[i].currentSongTitle}' : ''}',
+                        borderRadius: getItemBorderRadius(i, rooms.length),
+                        trailing: FilledButton.tonal(
+                          onPressed: () async {
+                            final success = await _service.joinRoom(rooms[i]);
+                            if (!context.mounted) return;
+                            if (!success) {
+                              showToast(context, 'Could not join ${rooms[i].name}. Host port may have changed.');
+                            }
+                          },
+                          child: Text(l10n.partyJoinButton),
+                        ),
+                      ),
+                  ],
+                );
+              },
             );
           },
         ),

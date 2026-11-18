@@ -2025,7 +2025,8 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           await session.setActive(true);
         } catch (_) {}
       }
-      if (PartySyncService.instance.isHost) {
+      if (PartySyncService.instance.isHost &&
+          PartySyncService.instance.connectedSpeakers.value.isNotEmpty) {
         PartySyncService.instance.coordinateHostPlay(
           positionMs: audioPlayer.position.inMilliseconds,
         );
@@ -2067,7 +2068,8 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
       );
       unawaited(listeningStatsService.flush());
       await audioPlayer.pause();
-      if (PartySyncService.instance.isHost) {
+      if (PartySyncService.instance.isHost &&
+          PartySyncService.instance.connectedSpeakers.value.isNotEmpty) {
         PartySyncService.instance.coordinateHostPause(
           positionMs: audioPlayer.position.inMilliseconds,
         );
@@ -2457,7 +2459,8 @@ class MusifyAudioHandler extends BaseAudioHandler implements AndroidAutoHost {
           await session.setActive(true);
         } catch (_) {}
       }
-      if (PartySyncService.instance.isHost) {
+      if (PartySyncService.instance.isHost &&
+          PartySyncService.instance.connectedSpeakers.value.isNotEmpty) {
         PartySyncService.instance.coordinateHostSongStart(
           song,
           streamUrl: songUrl,

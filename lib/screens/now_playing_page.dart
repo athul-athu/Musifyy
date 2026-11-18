@@ -3,6 +3,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:musify/main.dart';
+import 'package:musify/services/party_sync/party_sync_service.dart';
 import 'package:musify/widgets/flip_card.dart';
 import 'package:musify/widgets/now_playing/bottom_actions_row.dart';
 import 'package:musify/widgets/now_playing/now_playing_artwork.dart';
@@ -89,17 +90,25 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
             ),
             onPressed: () => Navigator.pop(context),
           ),
-          IconButton(
-            iconSize: 22,
-            icon: const Icon(FluentIcons.speaker_2_24_regular),
-            tooltip: 'Party Mode',
-            style: IconButton.styleFrom(
-              backgroundColor: colorScheme.surfaceContainerHighest,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            onPressed: () => context.push('/settings/party-mode'),
+          ValueListenableBuilder<PartyRole>(
+            valueListenable: PartySyncService.instance.role,
+            builder: (context, role, _) {
+              if (role == PartyRole.none) {
+                return const SizedBox.shrink();
+              }
+              return IconButton(
+                iconSize: 22,
+                icon: const Icon(FluentIcons.speaker_2_24_regular),
+                tooltip: 'Party Mode',
+                style: IconButton.styleFrom(
+                  backgroundColor: colorScheme.surfaceContainerHighest,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () => context.push('/settings/party-mode'),
+              );
+            },
           ),
         ],
       ),

@@ -5,7 +5,9 @@ import 'dart:math';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_multicast_lock/flutter_multicast_lock.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:musify/main.dart';
@@ -57,6 +59,26 @@ class PartySyncService {
   StreamSubscription<List<Map>>? _hostQueueSubscription;
   StreamSubscription<MediaItem?>? _hostMediaItemSubscription;
   bool _isReorderingQueue = false;
+
+  void _safeSet<T>(ValueNotifier<T> notifier, T newValue) {
+    if (notifier.value == newValue) return;
+    try {
+      final binding = WidgetsBinding.instance;
+      if (binding.schedulerPhase != SchedulerPhase.idle) {
+        binding.addPostFrameCallback((_) {
+          notifier.value = newValue;
+        });
+        return;
+      }
+    } catch (_) {}
+    notifier.value = newValue;
+  }
+
+  void _safeSetList<T>(ValueNotifier<List<T>> notifier, List<T> newList) {
+    if (notifier.value.isEmpty && newList.isEmpty) return;
+    if (listEquals(notifier.value, newList)) return;
+    _safeSet(notifier, newList);
+  }
 
   final PartyClockService clock = PartyClockService();
   PartyDriftController? _driftController;
@@ -183,10 +205,10 @@ class PartySyncService {
         sessionId: _sessionId,
       );
 
-      currentRoom.value = room;
-      role.value = PartyRole.host;
-      state.value = PartyState.hosting;
-      connectedSpeakers.value = [];
+      _safeSet(currentRoom, room);
+      _safeSet(role, PartyRole.host);
+      _safeSet(state, PartyState.hosting);
+      _safeSetList(connectedSpeakers, <ConnectedSpeaker>[]);
 
       _queueItemMetadata.clear();
       if (_isAudioHandlerAvailable) {
@@ -542,7 +564,7 @@ class PartySyncService {
   }
 
   void _updateConnectedSpeakersList() {
-    connectedSpeakers.value = _clientSockets.values.toList();
+    _safeSetList(connectedSpeakers, _clientSockets.values.toList());
   }
 
   void _broadcastToSpeakers(PartyMessage message) {
@@ -693,9 +715,12 @@ class PartySyncService {
 
     final currentYtid = (song['ytid'] ?? song['id'] ?? '').toString();
     if (partyQueue.value.isNotEmpty) {
-      partyQueue.value = partyQueue.value.map((item) {
-        return item.copyWith(isPlaying: item.ytid == currentYtid);
-      }).toList();
+      _safeSetList(
+        partyQueue,
+        partyQueue.value.map((item) {
+          return item.copyWith(isPlaying: item.ytid == currentYtid);
+        }).toList(),
+      );
       _broadcastQueueUpdate();
     }
 
@@ -820,7 +845,7 @@ class PartySyncService {
   /// Toggles between DJ Mode (host controls queue) and Collaborative Jukebox.
   void setJukeboxMode(PartyJukeboxMode mode) {
     if (!isHost) return;
-    jukeboxMode.value = mode;
+    _safeSet(jukeboxMode, mode);
     final msg = PartyMessage.create(
       type: PartyMessageType.partyModeChange,
       sessionId: _sessionId,
@@ -883,7 +908,7 @@ class PartySyncService {
         .toSet();
     _queueItemMetadata.removeWhere((key, _) => !validYtids.contains(key));
 
-    partyQueue.value = updated;
+    _safeSetList(partyQueue, updated);
     _broadcastQueueUpdate();
   }
 
@@ -899,7 +924,7 @@ class PartySyncService {
       }
       return item;
     }).toList();
-    partyQueue.value = updated;
+    _safeSetList(partyQueue, updated);
     _broadcastQueueUpdate();
   }
 
@@ -944,7 +969,7 @@ class PartySyncService {
       await audioHandler.addToQueue(songData);
       _syncHostPartyQueue(audioHandler.currentQueueList);
     } else {
-      partyQueue.value = [...partyQueue.value, newItem];
+      _safeSetList(partyQueue, [...partyQueue.value, newItem]);
       _broadcastQueueUpdate();
     }
     _reorderQueueByVotes();
@@ -997,7 +1022,7 @@ class PartySyncService {
           voters.add(voterId);
         }
         q[queueIdx] = item.copyWith(voters: voters);
-        partyQueue.value = q;
+        _safeSetList(partyQueue, q);
       }
     }
     _reorderQueueByVotes();
@@ -1034,7 +1059,7 @@ class PartySyncService {
       }
     }
 
-    partyQueue.value = targetOrder;
+    _safeSetList(partyQueue, targetOrder);
     _broadcastQueueUpdate();
   }
 
@@ -1048,7 +1073,7 @@ class PartySyncService {
         await audioHandler.removeFromQueue(index);
       } else {
         final q = List<PartyQueueItem>.from(partyQueue.value)..removeAt(index);
-        partyQueue.value = q;
+        _safeSetList(partyQueue, q);
         _broadcastQueueUpdate();
       }
     }
@@ -1105,12 +1130,12 @@ class PartySyncService {
 
   /// Starts listening for Party Rooms broadcasted on the local Wi-Fi.
   Future<void> startDiscovery() async {
-    discoveredRooms.value = [];
+    _safeSetList(discoveredRooms, <PartyRoomInfo>[]);
     if (kIsWeb) {
-      state.value = PartyState.idle;
+      _safeSet(state, PartyState.idle);
       return;
     }
-    state.value = PartyState.discovering;
+    _safeSet(state, PartyState.discovering);
 
     // If socket is already bound and actively listening, no need to re-bind
     if (_discoverySocket != null && _discoverySubscription != null) {
@@ -1155,7 +1180,7 @@ class PartySyncService {
               } else {
                 existing.add(room);
               }
-              discoveredRooms.value = existing;
+              _safeSetList(discoveredRooms, existing);
             }
           } catch (_) {}
         },
@@ -1183,7 +1208,7 @@ class PartySyncService {
     _discoverySocket = null;
 
     if (state.value == PartyState.discovering) {
-      state.value = PartyState.idle;
+      _safeSet(state, PartyState.idle);
     }
   }
 
@@ -1205,15 +1230,18 @@ class PartySyncService {
     await leaveParty();
     stopDiscovery();
 
-    state.value = PartyState.connecting;
-    currentRoom.value = roomInfo ??
-        PartyRoomInfo(
-          id: 'manual',
-          name: 'Party ($ip)',
-          hostName: 'Host',
-          ip: ip,
-          port: port,
-        );
+    _safeSet(state, PartyState.connecting);
+    _safeSet(
+      currentRoom,
+      roomInfo ??
+          PartyRoomInfo(
+            id: 'manual',
+            name: 'Party ($ip)',
+            hostName: 'Host',
+            ip: ip,
+            port: port,
+          ),
+    );
 
     try {
       final wsUrl = Uri.parse('ws://$ip:$port/party/ws');
@@ -1221,8 +1249,8 @@ class PartySyncService {
         wsUrl.toString(),
       ).timeout(const Duration(seconds: 6));
 
-      role.value = PartyRole.speaker;
-      state.value = PartyState.connectedSpeaker;
+      _safeSet(role, PartyRole.speaker);
+      _safeSet(state, PartyState.connectedSpeaker);
 
       clock.reset();
       _driftController = PartyDriftController(
@@ -1297,16 +1325,22 @@ class PartySyncService {
             final welcomeQueue =
                 message.payload['queue'] as List<dynamic>?;
             if (welcomeQueue != null) {
-              partyQueue.value = welcomeQueue
-                  .map((e) => PartyQueueItem.fromJson(
-                      Map<String, dynamic>.from(e as Map)))
-                  .toList();
+              _safeSetList(
+                partyQueue,
+                welcomeQueue
+                    .map((e) => PartyQueueItem.fromJson(
+                        Map<String, dynamic>.from(e as Map)))
+                    .toList(),
+              );
             }
             final welcomeMode = message.payload['jukeboxMode'] as String?;
             if (welcomeMode != null) {
-              jukeboxMode.value = welcomeMode == PartyJukeboxMode.djOnly.name
-                  ? PartyJukeboxMode.djOnly
-                  : PartyJukeboxMode.collaborative;
+              _safeSet(
+                jukeboxMode,
+                welcomeMode == PartyJukeboxMode.djOnly.name
+                    ? PartyJukeboxMode.djOnly
+                    : PartyJukeboxMode.collaborative,
+              );
             }
             break;
 
@@ -1531,24 +1565,33 @@ class PartySyncService {
           case PartyMessageType.queueUpdate:
             final rawItems =
                 (message.payload['items'] as List<dynamic>?) ?? [];
-            partyQueue.value = rawItems
-                .map((e) => PartyQueueItem.fromJson(
-                    Map<String, dynamic>.from(e as Map)))
-                .toList();
+            _safeSetList(
+              partyQueue,
+              rawItems
+                  .map((e) => PartyQueueItem.fromJson(
+                      Map<String, dynamic>.from(e as Map)))
+                  .toList(),
+            );
             final modeName = message.payload['jukeboxMode'] as String?;
             if (modeName != null) {
-              jukeboxMode.value = modeName == PartyJukeboxMode.djOnly.name
-                  ? PartyJukeboxMode.djOnly
-                  : PartyJukeboxMode.collaborative;
+              _safeSet(
+                jukeboxMode,
+                modeName == PartyJukeboxMode.djOnly.name
+                    ? PartyJukeboxMode.djOnly
+                    : PartyJukeboxMode.collaborative,
+              );
             }
             break;
 
           case PartyMessageType.partyModeChange:
             final modeName = message.payload['jukeboxMode'] as String?;
             if (modeName != null) {
-              jukeboxMode.value = modeName == PartyJukeboxMode.djOnly.name
-                  ? PartyJukeboxMode.djOnly
-                  : PartyJukeboxMode.collaborative;
+              _safeSet(
+                jukeboxMode,
+                modeName == PartyJukeboxMode.djOnly.name
+                    ? PartyJukeboxMode.djOnly
+                    : PartyJukeboxMode.collaborative,
+              );
             }
             break;
 
@@ -1854,12 +1897,12 @@ class PartySyncService {
     await _hostMediaItemSubscription?.cancel();
     _hostMediaItemSubscription = null;
     _queueItemMetadata.clear();
-    partyQueue.value = [];
+    _safeSetList(partyQueue, <PartyQueueItem>[]);
 
-    role.value = PartyRole.none;
-    state.value = PartyState.idle;
-    connectedSpeakers.value = [];
-    currentRoom.value = null;
+    _safeSet(role, PartyRole.none);
+    _safeSet(state, PartyState.idle);
+    _safeSetList(connectedSpeakers, <ConnectedSpeaker>[]);
+    _safeSet(currentRoom, null);
     _currentHostSong = null;
     _isHostPlaying = false;
     _isHostResuming = false;

@@ -100,16 +100,24 @@ String formatMonthPeriodLabel(Locale locale, String monthKey) {
 AudioOnlyStreamInfo? selectAudioOnlyStreamForQuality(
   List<AudioOnlyStreamInfo> availableSources,
 ) {
-  if (availableSources.isEmpty) return null;
+  final res = selectAudioStreamForQuality(availableSources);
+  return res is AudioOnlyStreamInfo ? res : null;
+}
 
-  final compatibleSources = _filterCompatibleAudioOnlySources(availableSources);
+AudioStreamInfo? selectAudioStreamForQuality(
+  Iterable<AudioStreamInfo> availableSources,
+) {
+  final list = availableSources.toList();
+  if (list.isEmpty) return null;
 
-  final List<AudioOnlyStreamInfo> selectionPool;
+  final compatibleSources = _filterCompatibleAudioSources(list);
+
+  final List<AudioStreamInfo> selectionPool;
   if (compatibleSources.isNotEmpty) {
-    selectionPool = List<AudioOnlyStreamInfo>.from(compatibleSources);
+    selectionPool = List<AudioStreamInfo>.from(compatibleSources);
   } else if (isApplePlatform || isWindowsPlatform) {
     // On iOS/macOS and Windows, fallback only to streams with mp4/m4a container, avoiding WebM entirely
-    selectionPool = availableSources
+    selectionPool = list
         .where((s) {
           final c = s.container.name.toLowerCase();
           return c == 'mp4' || c == 'm4a';
@@ -119,7 +127,7 @@ AudioOnlyStreamInfo? selectAudioOnlyStreamForQuality(
       return null;
     }
   } else {
-    selectionPool = List<AudioOnlyStreamInfo>.from(availableSources);
+    selectionPool = List<AudioStreamInfo>.from(list);
   }
 
   selectionPool.sort((a, b) => b.bitrate.compareTo(a.bitrate));
@@ -135,16 +143,16 @@ AudioOnlyStreamInfo? selectAudioOnlyStreamForQuality(
   return selectionPool.first;
 }
 
-List<AudioOnlyStreamInfo> _filterCompatibleAudioOnlySources(
-  List<AudioOnlyStreamInfo> sources,
+List<AudioStreamInfo> _filterCompatibleAudioSources(
+  List<AudioStreamInfo> sources,
 ) {
   return sources
-      .where((stream) => _audioOnlyCompatibilityScore(stream) >= 2)
+      .where((stream) => _audioCompatibilityScore(stream) >= 2)
       .toList();
 }
 
-int _audioOnlyCompatibilityScore(AudioOnlyStreamInfo stream) {
-  final codec = stream.codec.toString().toLowerCase();
+int _audioCompatibilityScore(AudioStreamInfo stream) {
+  final codec = stream.audioCodec.toLowerCase();
   final container = stream.container.name.toLowerCase();
 
   if (_isDolbyCodec(codec)) {

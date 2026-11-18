@@ -516,11 +516,11 @@ class ProxyManager {
   }
 
   Future<StreamManifest?> getSongManifest(String songId) async {
-    if (!useProxy.value) {
-      return _validateDirect(songId, _validateDirectTimeout);
+    if (useProxy.value) {
+      final directManifest =
+          await _validateDirect(songId, _validateDirectTimeout);
+      if (directManifest != null) return directManifest;
     }
-    var manifest = await _validateDirect(songId, _validateDirectTimeout);
-    if (manifest != null) return manifest;
 
     if (DateTime.now().difference(_lastFetched).inMinutes >=
         _proxyRefreshIntervalMinutes) {
@@ -529,12 +529,10 @@ class ProxyManager {
 
     _maybeCleanupProxies();
 
-    manifest = await _tryProxies(songId);
-    return manifest;
+    return await _tryProxies(songId);
   }
 
   Future<StreamManifest?> _tryProxies(String songId) async {
-    if (!useProxy.value) return null;
     StreamManifest? manifest;
     var attempts = 0;
     const maxAttempts = 5;
